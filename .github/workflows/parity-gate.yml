@@ -25,6 +25,9 @@ jobs:
       - name: Shared core typecheck
         run: npm run -w @adm/shared-core typecheck
 
+      - name: Shared core build
+        run: npm run -w @adm/shared-core build
+
       - name: UI typecheck
         run: npm run -w @adm/dark-matter-ui typecheck
 
