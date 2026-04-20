@@ -56,6 +56,11 @@ interface SettlementProof {
   transcriptHash: string;
   released: boolean;
   escrowBnb: number;
+  agentAApprovalTxHash?: string;
+  agentAApprovalBlockNumber?: number;
+  agentBApprovalTxHash?: string;
+  agentBApprovalBlockNumber?: number;
+  agentBApprovalActor?: string;
 }
 
 interface PoolItem {
@@ -115,6 +120,11 @@ function shorten(value: string, width = 7): string {
 
 function txLink(hash: string): string {
   return `https://testnet.bscscan.com/tx/${hash}`;
+}
+
+function sameAddress(a?: string, b?: string): boolean {
+  if (!a || !b) return false;
+  return a.toLowerCase() === b.toLowerCase();
 }
 
 function sourceBadge(source: PoolsResponse["source"] | undefined): string {
@@ -483,7 +493,73 @@ export default function Page() {
                         {activePool.settlement.transcriptHash}
                       </p>
                     </div>
+                    <div className="rounded-lg border border-surface-200 bg-surface-50 p-3">
+                      <p className="metric-label">Agent A approval tx</p>
+                      {activePool.settlement.agentAApprovalTxHash ? (
+                        <a
+                          href={txLink(activePool.settlement.agentAApprovalTxHash)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-1 block break-all text-xs font-semibold text-brand-700 underline"
+                        >
+                          {shorten(activePool.settlement.agentAApprovalTxHash, 10)}
+                        </a>
+                      ) : (
+                        <p className="mt-1 text-xs font-semibold text-surface-600">
+                          Not observed
+                        </p>
+                      )}
+                    </div>
+                    <div className="rounded-lg border border-surface-200 bg-surface-50 p-3">
+                      <p className="metric-label">Agent B approval tx</p>
+                      {activePool.settlement.agentBApprovalTxHash ? (
+                        <a
+                          href={txLink(activePool.settlement.agentBApprovalTxHash)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-1 block break-all text-xs font-semibold text-brand-700 underline"
+                        >
+                          {shorten(activePool.settlement.agentBApprovalTxHash, 10)}
+                        </a>
+                      ) : (
+                        <p className="mt-1 text-xs font-semibold text-surface-600">
+                          Not observed
+                        </p>
+                      )}
+                    </div>
                   </div>
+
+                  {(() => {
+                    const agentBWallet = activePool.discoveredAgents.find(
+                      (agent) => agent.name.toLowerCase() === "agent b",
+                    )?.wallet;
+                    const hasApproval = !!activePool.settlement.agentBApprovalTxHash;
+                    const actorMatches = sameAddress(
+                      activePool.settlement.agentBApprovalActor,
+                      agentBWallet,
+                    );
+                    const proofVerified = hasApproval && actorMatches;
+
+                    return (
+                      <div className="mt-3 rounded-lg border border-surface-200 bg-white p-3 text-xs text-surface-700">
+                        <p className="metric-label">Agent B proof</p>
+                        <p className="mt-1 font-semibold text-surface-900">
+                          {proofVerified
+                            ? "Verified on-chain"
+                            : "Pending or unverifiable"}
+                        </p>
+                        <p className="mt-1 break-all">
+                          Expected wallet: {agentBWallet || "unknown"}
+                        </p>
+                        <p className="mt-1 break-all">
+                          Approval actor: {activePool.settlement.agentBApprovalActor || "not captured"}
+                        </p>
+                        <p className="mt-1">
+                          Approval block: {activePool.settlement.agentBApprovalBlockNumber || "not captured"}
+                        </p>
+                      </div>
+                    );
+                  })()}
 
                   <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-surface-200 bg-white px-3 py-1 text-xs text-surface-700">
                     <span

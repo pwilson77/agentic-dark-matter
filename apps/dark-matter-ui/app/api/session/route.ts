@@ -57,6 +57,11 @@ interface SettlementProof {
   transcriptHash: string;
   released: boolean;
   escrowBnb: number;
+  agentAApprovalTxHash?: string;
+  agentAApprovalBlockNumber?: number;
+  agentBApprovalTxHash?: string;
+  agentBApprovalBlockNumber?: number;
+  agentBApprovalActor?: string;
 }
 
 interface PoolItem {
@@ -665,6 +670,11 @@ interface LocalOnChainPool {
   agentA: string;
   agentB: string;
   treasury: string;
+  agentAApprovalTxHash: string;
+  agentAApprovalBlockNumber: number;
+  agentBApprovalTxHash: string;
+  agentBApprovalBlockNumber: number;
+  agentBApprovalActor: string;
 }
 
 interface LiveTimelineEvent {
@@ -779,6 +789,11 @@ async function loadLocalPoolsFromChain(): Promise<PoolItem[]> {
       agentA: "",
       agentB: "",
       treasury: "",
+      agentAApprovalTxHash: "",
+      agentAApprovalBlockNumber: 0,
+      agentBApprovalTxHash: "",
+      agentBApprovalBlockNumber: 0,
+      agentBApprovalActor: "",
     });
   }
 
@@ -797,6 +812,11 @@ async function loadLocalPoolsFromChain(): Promise<PoolItem[]> {
       agentA: "",
       agentB: "",
       treasury: "",
+      agentAApprovalTxHash: "",
+      agentAApprovalBlockNumber: 0,
+      agentBApprovalTxHash: "",
+      agentBApprovalBlockNumber: 0,
+      agentBApprovalActor: "",
     };
 
     existing.agentA = String(parsed.args.agentA);
@@ -811,11 +831,28 @@ async function loadLocalPoolsFromChain(): Promise<PoolItem[]> {
     if (!parsed) continue;
     const contractAddress = log.address.toLowerCase();
     const statusRaw = String(parsed.args.status);
+    const actor = String(parsed.args.actor || "").toLowerCase();
 
     const existing = poolMap.get(contractAddress);
     if (!existing) continue;
     existing.lastStatusRaw = statusRaw;
     existing.latestStatus = statusFromEvent(statusRaw);
+
+    if (statusRaw.toLowerCase().includes("approved")) {
+      const agentALower = existing.agentA.toLowerCase();
+      const agentBLower = existing.agentB.toLowerCase();
+
+      if (actor && actor === agentALower) {
+        existing.agentAApprovalTxHash = log.transactionHash;
+        existing.agentAApprovalBlockNumber = Number(log.blockNumber || 0);
+      }
+
+      if (actor && actor === agentBLower) {
+        existing.agentBApprovalTxHash = log.transactionHash;
+        existing.agentBApprovalBlockNumber = Number(log.blockNumber || 0);
+        existing.agentBApprovalActor = actor;
+      }
+    }
   }
 
   for (const log of releasedLogs) {
@@ -893,6 +930,11 @@ async function loadLocalPoolsFromChain(): Promise<PoolItem[]> {
         transcriptHash: pool.poolId,
         released: pool.latestStatus === "completed",
         escrowBnb: Number(initialBalanceBnb.toFixed(4)),
+        agentAApprovalTxHash: pool.agentAApprovalTxHash,
+        agentAApprovalBlockNumber: pool.agentAApprovalBlockNumber,
+        agentBApprovalTxHash: pool.agentBApprovalTxHash,
+        agentBApprovalBlockNumber: pool.agentBApprovalBlockNumber,
+        agentBApprovalActor: pool.agentBApprovalActor,
       },
       timeline: [
         {
