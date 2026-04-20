@@ -1,0 +1,15 @@
+{
+  "name": "@adm/dark-matter-demo",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "demo:run": "node --loader ts-node/esm src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@adm/shared-core": "0.1.0"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.2"
+  }
+}

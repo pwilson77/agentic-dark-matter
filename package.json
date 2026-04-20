@@ -1,0 +1,37 @@
+{
+  "name": "agentic-dark-matter-oracle",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dark-matter:demo": "npm --workspace @adm/shared-core run build && npm --workspace @adm/dark-matter-demo run demo:run",
+    "dark-matter:demo:env": "sh -c 'set -a && . \"$1\" && set +a && npm run dark-matter:demo' --",
+    "dark-matter:demo:testnet": "npm run dark-matter:demo:env ./.env.testnet",
+    "dark-matter:demo:local": "npm run dark-matter:demo:env ./.env.localchain",
+    "bootstrap:local": "bash ./scripts/bootstrap-local.sh",
+    "bootstrap:hosted": "npm run dark-matter:demo:testnet",
+    "localchain:start": "sh -c 'export PATH=\"$HOME/.foundry/bin:$PATH\" && cd contracts && anvil --host 127.0.0.1 --port 8545'",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "contracts:build": "cd contracts && forge build",
+    "contracts:test": "cd contracts && forge test -vv",
+    "verify:local-pools": "node ./scripts/verify-local-pools.mjs",
+    "verify:timeout-operators": "node ./scripts/verify-timeout-operator-actions.mjs",
+    "verify:mcp-parity": "npm --workspace @adm/shared-core run build && node ./scripts/verify-mcp-parity.mjs --mode matrix",
+    "verify:mcp-parity:evm": "npm --workspace @adm/shared-core run build && node ./scripts/verify-mcp-parity.mjs --mode matrix --rail evm-bnb",
+    "verify:mcp-parity:readonly": "npm --workspace @adm/shared-core run build && node ./scripts/verify-mcp-parity.mjs --mode matrix --rail simulated-readonly",
+    "verify:mcp-parity:static": "npm --workspace @adm/shared-core run build && node ./scripts/verify-mcp-parity.mjs --mode static",
+    "sdk:build": "npm --workspace @adm/shared-core run build && npm --workspace @adm/agent-sdk run build",
+    "sdk:typecheck": "npm --workspace @adm/agent-sdk run typecheck",
+    "verify:agent-sdk": "npm run sdk:build && node ./scripts/verify-agent-sdk.mjs",
+    "agent:start:a": "npm --workspace @adm/shared-core run build && npm --workspace @adm/agent-runtime run build && AGENT_A_PRIVATE_KEY=0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d node ./apps/agent-runtime/dist/cli.js agent --config ./agents/agent-a/config.json",
+    "agent:start:b": "npm --workspace @adm/shared-core run build && npm --workspace @adm/agent-runtime run build && AGENT_B_PRIVATE_KEY=0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a node ./apps/agent-runtime/dist/cli.js agent --config ./agents/agent-b/config.json",
+    "demo:orchestrate": "npm --workspace @adm/shared-core run build && npm --workspace @adm/agent-runtime run build && DARK_MATTER_RPC_URL=http://127.0.0.1:8545 DARK_MATTER_CHAIN_ID=31337 DARK_MATTER_DEPLOYER_PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 DARK_MATTER_AGENT_A_ADDRESS=0x70997970C51812dc3A010C7d01b50e0d17dc79C8 DARK_MATTER_AGENT_B_ADDRESS=0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC node ./apps/agent-runtime/dist/cli.js orchestrate"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "typescript": "^5.6.3"
+  }
+}

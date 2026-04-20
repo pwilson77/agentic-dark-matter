@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  @apply font-sans antialiased;
+  background-color: #f8fafc;
+  color: #0f172a;
+  background-image:
+    radial-gradient(circle at 0% 0%, rgba(40, 95, 255, 0.08), transparent 35%),
+    radial-gradient(
+      circle at 100% 0%,
+      rgba(2, 132, 199, 0.08),
+      transparent 30%
+    ),
+    linear-gradient(to bottom, #f8fafc, #f1f5f9);
+}
+
+.panel {
+  @apply rounded-2xl border border-surface-200 bg-white shadow-card;
+}
+
+.eyebrow {
+  @apply text-[11px] font-semibold uppercase tracking-[0.16em] text-surface-500;
+}
+
+.metric-label {
+  @apply text-xs font-medium text-surface-500;
+}
+
+.metric-value {
+  @apply text-sm font-semibold text-surface-900;
+}

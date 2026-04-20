@@ -1,0 +1,38 @@
+name: parity-gate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  parity-static-and-typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Shared core typecheck
+        run: npm run -w @adm/shared-core typecheck
+
+      - name: UI typecheck
+        run: npm run -w @adm/dark-matter-ui typecheck
+
+      - name: MCP parity static matrix
+        run: npm run verify:mcp-parity:static
+
+      - name: Script syntax checks
+        run: |
+          node --check scripts/verify-mcp-parity.mjs
+          node --check scripts/verify-timeout-operator-actions.mjs
+          node --check scripts/verify-local-pools.mjs

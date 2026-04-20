@@ -1,0 +1,94 @@
+name: agent-sdk-integration
+
+on:
+  pull_request:
+    paths:
+      - "packages/agent-sdk/**"
+      - "packages/shared-core/**"
+      - "contracts/**"
+      - "scripts/verify-agent-sdk.mjs"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/agent-sdk-integration.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "packages/agent-sdk/**"
+      - "packages/shared-core/**"
+      - "contracts/**"
+      - "scripts/verify-agent-sdk.mjs"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/agent-sdk-integration.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: agent-sdk-integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sdk-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Build contracts
+        run: npm run contracts:build
+
+      - name: Start anvil
+        run: |
+          nohup anvil --host 127.0.0.1 --port 8545 > /tmp/anvil.log 2>&1 &
+
+      - name: Wait for anvil
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in {1..30}; do
+            http_code=$(curl -s -o /tmp/anvil-ready.json -w "%{http_code}" \
+              -H 'content-type: application/json' \
+              --data '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1}' \
+              http://127.0.0.1:8545 || true)
+            if [[ "$http_code" == "200" ]]; then
+              echo "anvil ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "anvil did not become ready"
+          exit 1
+
+      - name: Verify Agent SDK integration
+        run: npm run verify:agent-sdk
+
+      - name: Print anvil logs on failure
+        if: failure()
+        run: |
+          echo "==== anvil log ===="
+          cat /tmp/anvil.log || true
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-sdk-integration-logs
+          path: |
+            /tmp/anvil.log
+            /tmp/anvil-ready.json
+          if-no-files-found: ignore
