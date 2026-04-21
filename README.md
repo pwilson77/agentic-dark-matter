@@ -385,9 +385,56 @@ RFQ auction engine:
   - Promote runtime orchestration into a reusable `@adm/agent-sdk`
   - Add import-friendly APIs for external agent frameworks
 
-- **Evidence-gated settlement**
-  - Require proof hash submission before coordinator release
-  - Add explicit validation policy and failure modes
+- **Evidence-gated settlement** — bind `release()` to a deliverable attestation, not just dual approval.
+
+  **Today.** `release()` gates only on `agentAApproved && agentBApproved`. The chain verifies *agreement*, not *work*. Off-chain exchange between `create` and `approveSettlement` is opaque to the contract.
+
+  **Target.** Agent B (the worker) commits a `proofHash` on-chain before their approval counts; Agent A (the payer) pins the policy that hash must match at `create` time; `release()` refuses to pay out unless the committed proof satisfies the pinned policy.
+
+  **Implementation plan**
+
+  1. **Contract surface** ([contracts/src/DarkMatterEscrow.sol](contracts/src/DarkMatterEscrow.sol))
+     - Add immutable `bytes32 public proofPolicyHash` set in the constructor (hash of the agreed deliverable schema: expected artifact hash, signer set, schema version). Zero means "legacy mode, no proof required" for backward compatibility with existing pools.
+     - Add `bytes32 public submittedProofHash` and `address public proofSubmitter` state.
+     - New function `submitProof(bytes32 proofHash)` — only callable by `agentB`, only once, reverts if `proofHash == 0` or policy hash is zero. Emits `ProofSubmitted(agentB, proofHash)` and `PoolStatusChanged(poolId, "proof-submitted", msg.sender)`.
+     - Modify `approveSettlement()`: if `proofPolicyHash != 0`, agent B's approval reverts unless `submittedProofHash != 0`. Agent A's approval is unchanged (A attests the proof matches off-chain).
+     - Modify `release()`: if `proofPolicyHash != 0`, revert when `submittedProofHash == 0`. (Dual-approval already implies A accepted the hash.)
+     - New errors: `ProofRequired`, `ProofAlreadySubmitted`, `PolicyNotSet`.
+     - Timeout path (`claimAfterTimeout`) is unchanged — timeout is the dispute escape hatch by design.
+
+  2. **Shared-core types** ([packages/shared-core/src/types.ts](packages/shared-core/src/types.ts))
+     - Extend `AgreementArtifact` with `proofPolicy?: { schemaVersion: string; deliverableHashAlgorithm: "sha256" | "keccak256"; signerSet?: Address[] }` and a derived `proofPolicyHash: Hex`.
+     - Add lifecycle event type `ProofSubmittedEvent` surfaced via `PoolStatusChanged("proof-submitted")`.
+
+  3. **SDK verb** ([packages/agent-sdk/src/client.ts](packages/agent-sdk/src/client.ts))
+     - Add `submitProof({ contractAddress, signerPrivateKey, proofHash, sourceMaterial? })` — validates `^0x[a-fA-F0-9]{64}$`, optionally hashes a local file/buffer to derive `proofHash`.
+     - `runStandardLifecycle` gains an optional `proof: { hash: Hex } | { computeFrom: string }` param; when present, it fires `submitProof` after `createAgreement` and before `approveSettlement` for agent B.
+     - New error code `PROOF_POLICY_VIOLATION` on `AgentSdkError`.
+
+  4. **MCP / lifecycle adapter** ([packages/shared-core/src/lifecycle-mcp.ts](packages/shared-core/src/lifecycle-mcp.ts) equivalents)
+     - Add canonical verb `submit_proof` to the lifecycle table. Update [LIFECYCLE_VERB_PARITY_CHECKLIST.md](LIFECYCLE_VERB_PARITY_CHECKLIST.md) with EVM + simulated-readonly rows.
+     - Simulated rail emits a synthetic proof event so parity verifier stays green.
+
+  5. **UI + session API** ([apps/dark-matter-ui/app/page.tsx](apps/dark-matter-ui/app/page.tsx), [apps/dark-matter-ui/app/api/session/route.ts](apps/dark-matter-ui/app/api/session/route.ts))
+     - Proof ribbon grows from 4 stops to 5: `deploy → proof → approve A → approve B → release`. Each stop keeps its BscScan tx link.
+     - Session state adds `proofHash` and `proofTxHash` fields; `PoolStatusChanged("proof-submitted")` logs are mapped to the new stop.
+
+  6. **Agent runtime** ([apps/agent-runtime/src/](apps/agent-runtime/src))
+     - Agent B computes `sha256` / `keccak256` over its deliverable artifact (e.g., the RFQ response payload, plus any attached file) before approving.
+     - Config: `proofMode: "required" | "optional" | "legacy"` per agent.
+
+  7. **Tests + verifiers**
+     - Foundry: add `DarkMatterEscrow.t.sol` cases — `release reverts without proof when policy set`, `agent B approve reverts without proof`, `timeout path still works with missing proof`, `double submit reverts`, `legacy mode (policyHash=0) keeps old behavior`.
+     - [scripts/verify-agent-sdk.mjs](scripts/verify-agent-sdk.mjs): extend the happy path to include `submit_proof` and assert the event.
+     - [scripts/verify-mcp-parity.mjs](scripts/verify-mcp-parity.mjs): add `submit_proof` to the matrix with rail-aware expectations.
+
+  8. **Migration**
+     - Existing deployed pools keep working (they were created with `proofPolicyHash = 0`).
+     - New pools opt in by passing a non-zero `proofPolicyHash` at `create`. Add a feature flag `DARK_MATTER_REQUIRE_PROOF=1` to the demo orchestrator and `agent:a:testnet` / `agent:b:testnet` scripts.
+
+  **What this does NOT do** (out of scope for this item)
+  - No oracle that decides whether the deliverable is *correct* — the chain still enforces the *commitment*, humans/policy decide correctness. "Automatic deliverable validation" belongs to a follow-on ZK/oracle roadmap item.
+  - No multi-signer proof. Single-signer (agent B) commit is the minimum viable evidence gate; multi-signer is additive.
 
 - **Registry and reputation**
   - Add agent registry endpoint and performance metrics
