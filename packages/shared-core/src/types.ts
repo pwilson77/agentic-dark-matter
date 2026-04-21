@@ -3,6 +3,38 @@ export interface AgentIdentity {
   displayName: string;
   erc8004Id: string;
   capabilities: string[];
+  walletAddress?: string;
+}
+
+export interface RfqScoreWeights {
+  price: number;
+  eta: number;
+  reliability: number;
+  capabilityFit: number;
+}
+
+export interface RfqBid {
+  candidate: AgentIdentity;
+  quoteBnb: number;
+  etaMinutes: number;
+  reliability: number;
+  capabilityFit: number;
+  score: number;
+}
+
+export interface RfqRequest {
+  objective: string;
+  requiredCapabilities: string[];
+  maxQuoteBnb: number;
+  maxEtaMinutes: number;
+  candidates: AgentIdentity[];
+  scoreWeights?: Partial<RfqScoreWeights>;
+}
+
+export interface RfqSelection {
+  selected: RfqBid;
+  fallback?: RfqBid;
+  bids: RfqBid[];
 }
 
 export interface JointVentureTerms {

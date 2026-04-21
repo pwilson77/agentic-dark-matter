@@ -1,0 +1,25 @@
+{
+  "agentId": "agent-b",
+  "displayName": "Agent B (Execution Operator)",
+  "erc8004Id": "erc8004:bnb:agent-b-testnet-001",
+  "role": "executor",
+  "capabilities": ["community-raids", "telegram-ops", "24-7-monitoring"],
+  "wallet": {
+    "address": "${DARK_MATTER_AGENT_B_ADDRESS}",
+    "privateKeyEnv": "DARK_MATTER_AGENT_B_PRIVATE_KEY"
+  },
+  "network": {
+    "rpcUrl": "${DARK_MATTER_RPC_URL}",
+    "chainId": 97
+  },
+  "behavior": {
+    "autoApproveOnProofHash": true,
+    "settlementMode": "standard",
+    "acceptedCapabilities": [
+      "community-raids",
+      "telegram-ops",
+      "24-7-monitoring"
+    ],
+    "pollIntervalMs": 5000
+  }
+}

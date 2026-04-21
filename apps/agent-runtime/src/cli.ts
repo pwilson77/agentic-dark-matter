@@ -7,8 +7,10 @@ import {
   createAgreementViaMcp,
   negotiateJointVenture,
   releaseViaMcp,
+  runRfqSelection,
   storeEncryptedTranscript,
 } from "@adm/shared-core";
+import type { AgentIdentity } from "@adm/shared-core";
 
 type AgentRole = "coordinator" | "executor";
 
@@ -52,6 +54,54 @@ const DEFAULT_STATE_FILE = "/tmp/adm-agent-state.json";
 const DEFAULT_RPC_URL = "http://127.0.0.1:8545";
 const DEFAULT_CHAIN_ID = 31337;
 const DEFAULT_TREASURY = "0x1111222233334444555566667777888899990000";
+
+function buildDefaultRfqCandidates(agentBAddress: string): AgentIdentity[] {
+  return [
+    {
+      id: "agent-b",
+      displayName: "Agent B",
+      erc8004Id: "erc8004:bnb:agent-b-001",
+      capabilities: ["community-raids", "telegram-ops"],
+      walletAddress: agentBAddress,
+    },
+    {
+      id: "agent-c",
+      displayName: "Agent C",
+      erc8004Id: "erc8004:bnb:agent-c-001",
+      capabilities: ["community-raids", "discord-ops"],
+      walletAddress: "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
+    },
+    {
+      id: "agent-d",
+      displayName: "Agent D",
+      erc8004Id: "erc8004:bnb:agent-d-001",
+      capabilities: ["community-raids", "telegram-ops", "growth-analytics"],
+      walletAddress: "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
+    },
+  ];
+}
+
+function parseRfqCandidatesFromEnv(
+  envValue: string | undefined,
+  fallback: AgentIdentity[],
+): AgentIdentity[] {
+  if (!envValue) return fallback;
+  try {
+    const parsed = JSON.parse(envValue) as AgentIdentity[];
+    if (!Array.isArray(parsed)) return fallback;
+    const usable = parsed.filter(
+      (item) =>
+        !!item &&
+        typeof item.id === "string" &&
+        typeof item.displayName === "string" &&
+        typeof item.erc8004Id === "string" &&
+        Array.isArray(item.capabilities),
+    );
+    return usable.length > 0 ? usable : fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -98,7 +148,9 @@ async function writeState(state: RuntimeState): Promise<void> {
 async function loadAgentConfig(configPath: string): Promise<AgentConfig> {
   const resolved = path.resolve(process.cwd(), configPath);
   const raw = await readFile(resolved, "utf8");
-  return JSON.parse(raw) as AgentConfig;
+  // Expand ${ENV_VAR} placeholders so testnet configs can reference env values.
+  const expanded = raw.replace(/\$\{([^}]+)\}/g, (_, key) => process.env[key] ?? "");
+  return JSON.parse(expanded) as AgentConfig;
 }
 
 function getPrivateKeyFromEnv(config: AgentConfig): string {
@@ -227,6 +279,55 @@ async function runOrchestrator(): Promise<void> {
     "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC";
   const transcriptSecret =
     process.env.DARK_MATTER_TRANSCRIPT_SECRET || "dev-dark-matter-secret";
+  const liquidityBnb = Number.parseFloat(
+    process.env.DARK_MATTER_LIQUIDITY_BNB || "0.05",
+  );
+  const networkLabel =
+    process.env.DARK_MATTER_NETWORK || "anvil-local";
+
+  const rfqCandidates = parseRfqCandidatesFromEnv(
+    process.env.DARK_MATTER_RFQ_COUNTERPARTIES_JSON,
+    buildDefaultRfqCandidates(agentBAddress),
+  );
+
+  const strictWalletMatch =
+    (process.env.DARK_MATTER_RFQ_STRICT_AGENT_B || "true").toLowerCase() !==
+    "false";
+  const eligibleCandidates = strictWalletMatch
+    ? rfqCandidates.filter(
+        (candidate) =>
+          !candidate.walletAddress ||
+          candidate.walletAddress.toLowerCase() === agentBAddress.toLowerCase(),
+      )
+    : rfqCandidates;
+  const effectiveCandidates =
+    eligibleCandidates.length > 0
+      ? eligibleCandidates
+      : buildDefaultRfqCandidates(agentBAddress).filter(
+          (candidate) => candidate.id === "agent-b",
+        );
+
+  const rfq = runRfqSelection({
+    objective:
+      "Select counterparty for coordinated liquidity and growth operations",
+    requiredCapabilities: ["community-raids", "telegram-ops"],
+    maxQuoteBnb: liquidityBnb * 2,
+    maxEtaMinutes: 60,
+    candidates: effectiveCandidates,
+  });
+
+  log(
+    "orchestrator",
+    `RFQ selected ${rfq.selected.candidate.displayName} score=${rfq.selected.score} quote=${rfq.selected.quoteBnb} eta=${rfq.selected.etaMinutes}m`,
+  );
+  if (rfq.fallback) {
+    log(
+      "orchestrator",
+      `RFQ fallback ${rfq.fallback.candidate.displayName} score=${rfq.fallback.score}`,
+    );
+  }
+
+  const selectedCounterparty = rfq.selected.candidate;
 
   const offer = {
     proposer: {
@@ -235,17 +336,12 @@ async function runOrchestrator(): Promise<void> {
       erc8004Id: "erc8004:bnb:agent-a-001",
       capabilities: ["liquidity-provision"],
     },
-    counterparty: {
-      id: "agent-b",
-      displayName: "Agent B",
-      erc8004Id: "erc8004:bnb:agent-b-001",
-      capabilities: ["community-raids", "telegram-ops"],
-    },
+    counterparty: selectedCounterparty,
     objective:
       "Launch coordinated liquidity and growth JV without exposing terms publicly before execution.",
     secrecyLevel: "private" as const,
     terms: {
-      liquidityBnb: 1,
+      liquidityBnb,
       raidCoverageHours: 24,
       revenueShareBpsAgentA: 6000,
       revenueShareBpsAgentB: 4000,
@@ -271,7 +367,7 @@ async function runOrchestrator(): Promise<void> {
     agreementId: negotiated.agreementId,
     participants: [offer.proposer, offer.counterparty],
     terms: offer.terms,
-    network: "anvil-local",
+    network: networkLabel,
     dryRun: false,
     transcriptArtifact: transcript,
     onChain: {
@@ -299,6 +395,31 @@ async function runOrchestrator(): Promise<void> {
     meta: {
       agreementHash: agreement.agreementHash,
       transcriptHash: transcript.transcriptHash,
+      rfq: {
+        selected: {
+          id: rfq.selected.candidate.id,
+          displayName: rfq.selected.candidate.displayName,
+          score: rfq.selected.score,
+          quoteBnb: rfq.selected.quoteBnb,
+          etaMinutes: rfq.selected.etaMinutes,
+        },
+        fallback: rfq.fallback
+          ? {
+              id: rfq.fallback.candidate.id,
+              displayName: rfq.fallback.candidate.displayName,
+              score: rfq.fallback.score,
+            }
+          : null,
+        bids: rfq.bids.map((bid) => ({
+          id: bid.candidate.id,
+          displayName: bid.candidate.displayName,
+          score: bid.score,
+          quoteBnb: bid.quoteBnb,
+          etaMinutes: bid.etaMinutes,
+          reliability: bid.reliability,
+          capabilityFit: bid.capabilityFit,
+        })),
+      },
     },
   });
   await writeState(state);

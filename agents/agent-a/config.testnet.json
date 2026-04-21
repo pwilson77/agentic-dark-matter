@@ -1,0 +1,31 @@
+{
+  "agentId": "agent-a",
+  "displayName": "Agent A (Liquidity Provider)",
+  "erc8004Id": "erc8004:bnb:agent-a-testnet-001",
+  "role": "coordinator",
+  "capabilities": ["liquidity-provision", "treasury-management"],
+  "wallet": {
+    "address": "${DARK_MATTER_AGENT_A_ADDRESS}",
+    "privateKeyEnv": "DARK_MATTER_AGENT_A_PRIVATE_KEY"
+  },
+  "network": {
+    "rpcUrl": "${DARK_MATTER_RPC_URL}",
+    "chainId": 97
+  },
+  "behavior": {
+    "autoApproveOnProofHash": true,
+    "settlementMode": "standard",
+    "maxEscrowBnb": 0.1,
+    "pollIntervalMs": 5000
+  },
+  "task": {
+    "objective": "Launch coordinated liquidity and growth JV without exposing terms publicly before execution.",
+    "secrecyLevel": "private",
+    "liquidityBnb": "${DARK_MATTER_LIQUIDITY_BNB}",
+    "raidCoverageHours": 24,
+    "revenueShareBpsAgentA": 6000,
+    "revenueShareBpsAgentB": 4000,
+    "treasuryAddress": "0x1111222233334444555566667777888899990000",
+    "notes": "Agent A provides liquidity; Agent B handles Telegram and X raid operations."
+  }
+}
