@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Agentic Dark Matter Pool Explorer",
+  title: "Agentic Dark Matter",
   description:
-    "Clean multi-pool demo UI with selectable pool details for discovery, matchmaking, and settlement.",
+    "Verifiable agent commerce with on-chain escrow settlement, timeline evidence, dashboard operations, and integration docs.",
 };
 
 export default function RootLayout({

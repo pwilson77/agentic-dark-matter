@@ -25,6 +25,34 @@ body {
     linear-gradient(to bottom, #f8fafc, #f1f5f9);
 }
 
+.dm-orb-bg {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    radial-gradient(circle at 10% 10%, rgba(245, 93, 62, 0.14), transparent 30%),
+    radial-gradient(circle at 90% 8%, rgba(22, 48, 70, 0.16), transparent 28%),
+    radial-gradient(circle at 80% 86%, rgba(46, 125, 50, 0.1), transparent 24%);
+}
+
+.dm-fade-up {
+  opacity: 0;
+  transform: translateY(16px);
+  animation: dmFadeUp 620ms ease-out forwards;
+}
+
+.dm-fade-delay {
+  animation-delay: 140ms;
+}
+
+@keyframes dmFadeUp {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .panel {
   @apply rounded-2xl border border-surface-200 bg-white shadow-card;
 }
