@@ -101,7 +101,7 @@ npm run verify:envelopes
 - Agent B calls `submitDeliveryProof(bytes32)` on-chain before settlement approval is accepted
 - `release()` reverts if no proof has been submitted
 - Winner-takes payout policy: escrow is distributed to executor wallet (Agent B) on both `release()` and `claimAfterTimeout()`
-- 14/14 Foundry tests passing (proof requirement, split distribution, timeout behavior)
+- 14/14 Foundry tests passing (proof requirement, winner payout behavior, timeout behavior)
 
 ```bash
 cd contracts && forge test
