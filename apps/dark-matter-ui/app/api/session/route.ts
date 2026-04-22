@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { Interface, JsonRpcProvider, formatEther, id } from "ethers";
 import { readFile as fsReadFile } from "node:fs/promises";
+import { join as pathJoin } from "node:path";
 
 type PoolStatus = "live" | "settling" | "completed" | "watchlist";
 
@@ -862,6 +863,33 @@ interface LiveTimelineResponse {
   events: LiveTimelineEvent[];
 }
 
+async function loadRuntimeStateRaw(): Promise<string> {
+  // Multiple fallback paths to handle different environments (local, Vercel, etc)
+  const candidateFiles = [
+    // Local dev: /tmp state file
+    process.env.AGENT_STATE_FILE || "/tmp/adm-agent-state.json",
+    // Env override
+    process.env.DARK_MATTER_DEMO_STATE_FILE || "",
+    // Bundled snapshot - try multiple possible paths for different environments
+    pathJoin(process.cwd(), "app/api/session/demo-state.snapshot.json"),
+    pathJoin(process.cwd(), "apps/dark-matter-ui/app/api/session/demo-state.snapshot.json"),
+    pathJoin(__dirname, "demo-state.snapshot.json"),
+  ].filter((value) => value.length > 0);
+
+  for (const filePath of candidateFiles) {
+    try {
+      const raw = await fsReadFile(filePath, "utf8");
+      if (raw.trim().length > 0) {
+        return raw;
+      }
+    } catch {
+      // Keep trying fallbacks until one works.
+    }
+  }
+
+  return "";
+}
+
 function buildLiveTimeline(
   pools: PoolItem[],
   source: PoolSource,
@@ -1122,14 +1150,8 @@ async function loadLocalPoolsFromChain(): Promise<PoolItem[]> {
 }
 
 async function loadLocalPoolsFromStateFile(): Promise<PoolItem[]> {
-  const stateFile = process.env.AGENT_STATE_FILE || "/tmp/adm-agent-state.json";
-
-  let raw = "";
-  try {
-    raw = await fsReadFile(stateFile, "utf8");
-  } catch {
-    return [];
-  }
+  const raw = await loadRuntimeStateRaw();
+  if (!raw) return [];
 
   const parsed = (() => {
     try {
@@ -1262,7 +1284,8 @@ async function loadLocalPoolsFromStateFile(): Promise<PoolItem[]> {
           id: `${shortId}-negotiation-evidence`,
           at: agreement.createdAt || "recent",
           title: "Negotiation evidence verified",
-          detail: `signers=${signerIds.join(",",
+          detail: `signers=${signerIds.join(
+            ",",
           )} · verified=${verifiedCount}/${negotiationEnvelopes.length} · nonceUnique=${uniqueNonceCount}/${nonces.length} · commitment=${uniqueCommitmentCount === 1 ? "consistent" : "inconsistent"}`,
           status: envelopeStatus,
         });
