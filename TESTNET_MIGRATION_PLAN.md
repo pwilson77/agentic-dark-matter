@@ -11,6 +11,7 @@
 ## Phase 1: Infrastructure & Network Configuration
 
 ### 1.1 RPC & Chain Setup
+
 - **Network:** BNB Smart Chain Testnet (Chapel)
   - Chain ID: `97`
   - RPC Endpoint: `https://data-seed-prebsc-1-s1.bnbchain.org:8545` (or alternative: `https://bsc-testnet.publicnode.com`)
@@ -20,13 +21,15 @@
   - Useful for rapid iteration without testnet RPC rate limits
 
 ### 1.2 Environment Configuration
+
 - **File:** Copy `.env.testnet.example` → `.env.testnet`
 - **Required fields to populate:**
+
   ```bash
   DARK_MATTER_NETWORK=bsc-testnet
   DARK_MATTER_RPC_URL=https://data-seed-prebsc-1-s1.bnbchain.org:8545
   DARK_MATTER_CHAIN_ID=97
-  
+
   # Generated/funded wallets (see 2.1)
   DARK_MATTER_DEPLOYER_PRIVATE_KEY=
   DARK_MATTER_AGENT_A_ADDRESS=
@@ -34,7 +37,7 @@
   DARK_MATTER_AGENT_A_PRIVATE_KEY=
   DARK_MATTER_AGENT_B_PRIVATE_KEY=
   DARK_MATTER_OPERATOR_PRIVATE_KEY=
-  
+
   # Security & persistence
   DARK_MATTER_TRANSCRIPT_SECRET=<generate-unique-secret>
   DARK_MATTER_TRANSCRIPT_FILE=/tmp/agentic-dark-matter-transcripts-bsc-testnet.json
@@ -42,6 +45,7 @@
   ```
 
 ### 1.3 Update NPM Scripts
+
 - **Add testnet scripts to `package.json`:**
   ```json
   "scripts": {
@@ -57,12 +61,16 @@
 ## Phase 2: Wallet & Funding Strategy
 
 ### 2.1 Generate Agent Wallets
+
 **Option A: Generate fresh wallets (recommended for isolation)**
+
 ```bash
 # Using ethers.js or hardhat
 npm run -w @adm/agent-runtime wallet:generate -- --count 4 --output wallets.testnet.json
 ```
+
 Output:
+
 ```json
 {
   "deployer": { "address": "0x...", "privateKey": "0x..." },
@@ -73,6 +81,7 @@ Output:
 ```
 
 **Option B: Reuse hardhat accounts** (faster for dev)
+
 ```bash
 # Hardhat derives these deterministically from network mnemonic
 # Address 0: 0x70997970C51812dc3A010C7d01b50e0d17dc79C8 → Agent A
@@ -81,12 +90,15 @@ Output:
 ```
 
 ### 2.2 Fund Wallets on BNB Testnet
+
 **Testnet faucets:**
+
 - Official: https://testnet.binance.org/faucet-smart
 - Alternative: https://faucet.quicknode.com/bsc
 - Community: https://www.bsctestnets.com/
 
 **Funding targets (per wallet):**
+
 - **Deployer:** 5 BNB (contract deployment gas)
 - **Agent A:** 2 BNB (approval txs + release txs)
 - **Agent B:** 2 BNB (approval txs)
@@ -96,6 +108,7 @@ Output:
 **Expected wait:** 5–30 minutes per faucet request
 
 ### 2.3 Funding Verification
+
 ```bash
 npm run -w @adm/agent-runtime check:balance -- --env .env.testnet --min-balance 1.0
 ```
@@ -105,12 +118,15 @@ npm run -w @adm/agent-runtime check:balance -- --env .env.testnet --min-balance 
 ## Phase 3: Smart Contract Deployment
 
 ### 3.1 Compile & Deploy
+
 **Contracts to deploy:**
+
 - `SettlementEscrow.sol` — Core escrow lifecycle (create/approve/release/timeout)
 - `GovernanceRail.sol` — Operator controls (retry, escalate, reveal)
 - `TokenVault.sol` — Holds settlement funds during negotiation
 
 **Deployment process:**
+
 ```bash
 # 1. Build & validate contracts
 npm run -w @adm/shared-core compile:contracts
@@ -123,6 +139,7 @@ npm run -w @adm/agent-runtime deploy:contracts -- \
 ```
 
 **Output:** Contract addresses (store in `.env.testnet`)
+
 ```
 DARK_MATTER_SETTLEMENT_ESCROW_ADDRESS=0x...
 DARK_MATTER_GOVERNANCE_RAIL_ADDRESS=0x...
@@ -130,6 +147,7 @@ DARK_MATTER_TOKEN_VAULT_ADDRESS=0x...
 ```
 
 ### 3.2 Contract Verification (Etherscan)
+
 - **Automatic via hardhat:**
   ```bash
   npm run -w @adm/shared-core verify:contracts -- \
@@ -140,11 +158,13 @@ DARK_MATTER_TOKEN_VAULT_ADDRESS=0x...
 - **Benefits:** Public source code visibility, ABI for third-party tools
 
 ### 3.3 Gas Optimization Check
+
 ```bash
 npm run -w @adm/shared-core analyze:gas -- \
   --network bsc-testnet \
   --compare-local
 ```
+
 Expected: ~150–200k gas per agreement lifecycle
 
 ---
@@ -152,12 +172,15 @@ Expected: ~150–200k gas per agreement lifecycle
 ## Phase 4: Agent Registration & RFQ Configuration
 
 ### 4.1 Agent Registry (On-chain or Off-chain)
+
 **On-chain registry** (if building broader ecosystem):
+
 - Deploy `AgentRegistry.sol` with agent metadata
 - Agents call `registerAgent(address, capability[], endpoint)`
 - RFQ engine queries registry to build candidate list
 
 **Off-chain registry** (faster for v1):
+
 - Store agents in environment JSON: `DARK_MATTER_RFQ_COUNTERPARTIES_JSON`
 - Format: `[{id, displayName, erc8004Id, capabilities, walletAddress}, ...]`
 - Example:
@@ -181,7 +204,9 @@ Expected: ~150–200k gas per agreement lifecycle
   ```
 
 ### 4.2 RFQ Weights & Scoring
+
 **Current defaults (inherited from local):**
+
 ```typescript
 {
   price: 0.35,          // 35% weight on BNB quote
@@ -192,6 +217,7 @@ Expected: ~150–200k gas per agreement lifecycle
 ```
 
 **Testnet tuning options:**
+
 - **Conservative (trust):** Increase reliability weight to 0.35, decrease price to 0.25
 - **Cost-optimized:** Increase price weight to 0.45, decrease reliability to 0.15
 - **Speed-focused:** Increase eta weight to 0.35, decrease capabilityFit to 0.10
@@ -199,11 +225,14 @@ Expected: ~150–200k gas per agreement lifecycle
 **Action:** Update weights in `runRfqSelection()` call within `cli.ts` orchestrator
 
 ### 4.3 Disable Strict Agent B Matching
+
 **For true multi-agent coordination:**
+
 ```bash
 # .env.testnet
 DARK_MATTER_RFQ_STRICT_AGENT_B=false
 ```
+
 This allows RFQ to select from any registered agent, not just Agent B.
 
 ---
@@ -211,6 +240,7 @@ This allows RFQ to select from any registered agent, not just Agent B.
 ## Phase 5: Testing & Validation
 
 ### 5.1 Unit & Integration Tests on Testnet
+
 ```bash
 # Run all tests with testnet configuration
 npm run test:testnet -- \
@@ -220,6 +250,7 @@ npm run test:testnet -- \
 ```
 
 **Test suite should validate:**
+
 - ✓ Agreement creation with deterministic settlement contract
 - ✓ RFQ selection produces expected winner
 - ✓ Agent A & B can approve independently
@@ -228,10 +259,13 @@ npm run test:testnet -- \
 - ✓ Operator actions (retry, escalate) execute correctly
 
 ### 5.2 Orchestrator Dry-Run
+
 ```bash
 DRY_RUN=true npm run demo:orchestrate:testnet
 ```
+
 **Validates:**
+
 - Network connectivity to RPC
 - Wallet funding levels
 - Contract availability
@@ -239,6 +273,7 @@ DRY_RUN=true npm run demo:orchestrate:testnet
 - Agreement construction (no txs sent)
 
 ### 5.3 Live Integration Flow (First Real Agreement)
+
 ```bash
 # Terminal 1: Agent A loop
 npm run agent:a:testnet -- --poll-interval 3000
@@ -254,6 +289,7 @@ watch -n 2 'cat /tmp/adm-agent-state.json | jq ".agreements[-1]"'
 ```
 
 **Expected flow:**
+
 1. Orchestrator logs: `RFQ selected Agent B score=XX.XX quote=X.XX eta=XXm`
 2. Orchestrator deploys contract: `contract=0x...`
 3. Agent A logs: `Approving 0x...`
@@ -268,41 +304,50 @@ watch -n 2 'cat /tmp/adm-agent-state.json | jq ".agreements[-1]"'
 ## Phase 6: UI Integration & Observability
 
 ### 6.1 Update Dark Matter UI for Testnet
+
 **File:** `apps/dark-matter-ui/app/api/session/route.ts`
 
 Current behavior:
+
 - Reads local state from `/tmp/adm-agent-state.json`
 - Filters to source=local by default
 
 Needed changes:
+
 ```typescript
 // Support testnet network selection
-const networkSource = query.get('network') || 'local'; // 'local', 'bsc-testnet', 'bsc-mainnet'
-const stateFile = networkSource === 'local' 
-  ? '/tmp/adm-agent-state.json'
-  : '/tmp/agentic-dark-matter-transcripts-bsc-testnet.json'; // or cloud-hosted DB
+const networkSource = query.get("network") || "local"; // 'local', 'bsc-testnet', 'bsc-mainnet'
+const stateFile =
+  networkSource === "local"
+    ? "/tmp/adm-agent-state.json"
+    : "/tmp/agentic-dark-matter-transcripts-bsc-testnet.json"; // or cloud-hosted DB
 
 // Append network label to timeline
 timelineEvent.detail += ` (${networkSource})`;
 ```
 
 **Updated UI URLs:**
+
 - Local: `http://127.0.0.1:3006?source=local`
 - Testnet: `http://127.0.0.1:3006?source=bsc-testnet&network=97`
 
 ### 6.2 Transaction Tracing
+
 **Add explorer links to UI timeline:**
+
 ```typescript
 // In timeline event detail
 if (event.txHash) {
-  const chain = networkSource === 'bsc-testnet' ? 'testnet' : '';
+  const chain = networkSource === "bsc-testnet" ? "testnet" : "";
   const explorerUrl = `https://${chain}.bscscan.com/tx/${event.txHash}`;
   event.detail += ` [View on Explorer](${explorerUrl})`;
 }
 ```
 
 ### 6.3 Real-Time Monitoring Dashboard
+
 **Deploy monitoring service:**
+
 ```bash
 npm run -w @adm/dark-matter-ui dev:testnet -- \
   --port 3007 \
@@ -311,6 +356,7 @@ npm run -w @adm/dark-matter-ui dev:testnet -- \
 ```
 
 **Dashboard features:**
+
 - Live agreement pipeline (stages: created → approved → released)
 - RFQ winner history with score distribution
 - Gas usage trends (avg gas/agreement)
@@ -322,7 +368,9 @@ npm run -w @adm/dark-matter-ui dev:testnet -- \
 ## Phase 7: Multi-Agent Coordination
 
 ### 7.1 Bring Additional Agents Online
+
 **Option A: Run Agent C & D locally**
+
 ```bash
 # Terminal 5: Agent C
 DARK_MATTER_AGENT_C_PRIVATE_KEY=0x... npm run agent:c:testnet
@@ -332,13 +380,16 @@ DARK_MATTER_AGENT_D_PRIVATE_KEY=0x... npm run agent:d:testnet
 ```
 
 **Option B: Coordinate with external agents**
+
 - Share `DARK_MATTER_RFQ_COUNTERPARTIES_JSON` with partner teams
 - Partner agents run their own loops pointing to same RPC + state file
 - Agents authenticate via wallet signature (verify signer in shared-core)
 
 ### 7.2 RFQ Evolution
+
 **v1 (current):** Deterministic seeded scoring → single winner  
 **v2 (testnet enhancements):**
+
 - Multi-round RFQ: Get quote from Agent B → if rejected, auto-retry with Agent C
 - Competitive bidding: All agents submit bids, select best score
 - Fallback chain: If winner doesn't approve in 5 minutes, auto-promote fallback
@@ -350,6 +401,7 @@ DARK_MATTER_AGENT_D_PRIVATE_KEY=0x... npm run agent:d:testnet
 ## Phase 8: Production Readiness Checklist
 
 ### Pre-Launch Validation
+
 - [ ] All wallets funded with 2+ BNB buffer
 - [ ] Contracts deployed & verified on Etherscan
 - [ ] Dry-run orchestrator completes without errors
@@ -361,6 +413,7 @@ DARK_MATTER_AGENT_D_PRIVATE_KEY=0x... npm run agent:d:testnet
 - [ ] Operator actions (retry, escalate) tested
 
 ### Monitoring & Alerting
+
 - [ ] Setup logs aggregation (datadog, loki, papertrail)
 - [ ] Alert on failed approvals or timeouts
 - [ ] Alert on RPC rate limit exhaustion
@@ -368,6 +421,7 @@ DARK_MATTER_AGENT_D_PRIVATE_KEY=0x... npm run agent:d:testnet
 - [ ] Daily digest of agreement metrics (count, avg gas, success rate)
 
 ### Documentation
+
 - [ ] Testnet deployment guide for new team members
 - [ ] RFQ scoring rationale & tuning guide
 - [ ] Troubleshooting guide (common RPC errors, gas issues, RFQ failures)
@@ -378,16 +432,19 @@ DARK_MATTER_AGENT_D_PRIVATE_KEY=0x... npm run agent:d:testnet
 ## Phase 9: Mainnet Preparation (Future)
 
 ### 9.1 Contract Security Audit
+
 - External audit of escrow lifecycle contracts
 - Formal verification of settlement state machine
 - Fuzz testing for gas edge cases
 
 ### 9.2 Mainnet Configuration
+
 - `.env.mainnet` with mainnet RPC + chain ID (56)
 - Real asset funding (actual BNB, not testnet)
 - Insurance or bonding for settlement disputes
 
 ### 9.3 Gradual Rollout
+
 - Phase 1: Pilot with 2 agents, small volume (0.1 BNB/agreement)
 - Phase 2: Expand to 5 agents, medium volume (0.5 BNB/agreement)
 - Phase 3: Open registry, community agents, full volume
@@ -424,14 +481,14 @@ open http://127.0.0.1:3006?source=bsc-testnet
 
 ## Risk Mitigation
 
-| Risk | Mitigation |
-|------|-----------|
-| **Testnet RPC downtime** | Use multiple RPC endpoints; implement fallback retry logic |
-| **Insufficient wallet funding** | Maintain 5+ BNB buffer per agent; alert at <1 BNB |
-| **Failed approvals (gas/nonce)** | Implement exponential backoff; log and retry failed txs |
-| **RFQ candidate unresponsive** | Timeout-based fallback (5 min); escalate to operator UI |
-| **State file corruption** | Daily backup; implement versioned state snapshots |
-| **Agent loop crashes** | PM2 auto-restart; circuit breaker on RPC errors |
+| Risk                             | Mitigation                                                 |
+| -------------------------------- | ---------------------------------------------------------- |
+| **Testnet RPC downtime**         | Use multiple RPC endpoints; implement fallback retry logic |
+| **Insufficient wallet funding**  | Maintain 5+ BNB buffer per agent; alert at <1 BNB          |
+| **Failed approvals (gas/nonce)** | Implement exponential backoff; log and retry failed txs    |
+| **RFQ candidate unresponsive**   | Timeout-based fallback (5 min); escalate to operator UI    |
+| **State file corruption**        | Daily backup; implement versioned state snapshots          |
+| **Agent loop crashes**           | PM2 auto-restart; circuit breaker on RPC errors            |
 
 ---
 

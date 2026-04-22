@@ -387,12 +387,11 @@ RFQ auction engine:
 
 - **Evidence-gated settlement** — bind `release()` to a deliverable attestation, not just dual approval.
 
-  **Today.** `release()` gates only on `agentAApproved && agentBApproved`. The chain verifies *agreement*, not *work*. Off-chain exchange between `create` and `approveSettlement` is opaque to the contract.
+  **Today.** `release()` gates only on `agentAApproved && agentBApproved`. The chain verifies _agreement_, not _work_. Off-chain exchange between `create` and `approveSettlement` is opaque to the contract.
 
   **Target.** Agent B (the worker) commits a `proofHash` on-chain before their approval counts; Agent A (the payer) pins the policy that hash must match at `create` time; `release()` refuses to pay out unless the committed proof satisfies the pinned policy.
 
   **Implementation plan**
-
   1. **Contract surface** ([contracts/src/DarkMatterEscrow.sol](contracts/src/DarkMatterEscrow.sol))
      - Add immutable `bytes32 public proofPolicyHash` set in the constructor (hash of the agreed deliverable schema: expected artifact hash, signer set, schema version). Zero means "legacy mode, no proof required" for backward compatibility with existing pools.
      - Add `bytes32 public submittedProofHash` and `address public proofSubmitter` state.
@@ -433,7 +432,7 @@ RFQ auction engine:
      - New pools opt in by passing a non-zero `proofPolicyHash` at `create`. Add a feature flag `DARK_MATTER_REQUIRE_PROOF=1` to the demo orchestrator and `agent:a:testnet` / `agent:b:testnet` scripts.
 
   **What this does NOT do** (out of scope for this item)
-  - No oracle that decides whether the deliverable is *correct* — the chain still enforces the *commitment*, humans/policy decide correctness. "Automatic deliverable validation" belongs to a follow-on ZK/oracle roadmap item.
+  - No oracle that decides whether the deliverable is _correct_ — the chain still enforces the _commitment_, humans/policy decide correctness. "Automatic deliverable validation" belongs to a follow-on ZK/oracle roadmap item.
   - No multi-signer proof. Single-signer (agent B) commit is the minimum viable evidence gate; multi-signer is additive.
 
 - **Registry and reputation**

@@ -1,0 +1,23 @@
+{
+  "type": "erc8004",
+  "name": "Agent A (Orchestrator)",
+  "description": "Dark Matter orchestrator agent. Initiates RFQ rounds, selects counterparties, creates escrow agreements, and releases payment on proof.",
+  "active": true,
+  "x402Support": true,
+  "services": [
+    {
+      "name": "OASF",
+      "skills": [
+        "escrow-settlement",
+        "rfq-orchestration",
+        "proof-verification"
+      ],
+      "domains": ["dark-matter", "a2a-settlement", "community-raids"]
+    },
+    {
+      "name": "agentWallet",
+      "endpoint": "eip155:97:0x31e722cbd4c287d7f823679b741f38705ce3fa78"
+    }
+  ],
+  "supportedTrust": ["bsc-testnet"]
+}

@@ -1,0 +1,24 @@
+{
+  "type": "erc8004",
+  "name": "Agent D (Growth Analytics)",
+  "description": "Dark Matter executor agent with full-stack community operations: Telegram raids, growth analytics, and campaign reporting.",
+  "active": true,
+  "x402Support": true,
+  "services": [
+    {
+      "name": "OASF",
+      "skills": [
+        "escrow-settlement",
+        "community-raids",
+        "telegram-ops",
+        "growth-analytics"
+      ],
+      "domains": ["dark-matter", "a2a-settlement", "community-raids"]
+    },
+    {
+      "name": "agentWallet",
+      "endpoint": "eip155:97:0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65"
+    }
+  ],
+  "supportedTrust": ["bsc-testnet"]
+}

@@ -33,14 +33,14 @@ npm install @adm/agent-sdk
 
 Set these before instantiating the client. `sdkConfigFromEnv()` reads them all with safe defaults.
 
-| Variable | Default | Notes |
-| --- | --- | --- |
-| `DARK_MATTER_RPC_URL` | `http://127.0.0.1:8545` | Anvil local, or `https://data-seed-prebsc-1-s1.bnbchain.org:8545` for BNB testnet |
-| `DARK_MATTER_CHAIN_ID` | `31337` | `97` for BNB testnet |
-| `DARK_MATTER_RAIL_ID` | `evm-bnb` | Canonical rail id |
-| `DARK_MATTER_POOL_SOURCE` | `local` | `local` reads `/tmp/adm-agent-state.json`; `mock` for demos; `prod` for hosted |
-| `DARK_MATTER_SDK_READ_MAX_ATTEMPTS` | `1` | Retries for `inspectStatus` / `inspectTimeline` |
-| `DARK_MATTER_SDK_READ_DELAY_MS` | `300` | Delay between read retries |
+| Variable                            | Default                 | Notes                                                                             |
+| ----------------------------------- | ----------------------- | --------------------------------------------------------------------------------- |
+| `DARK_MATTER_RPC_URL`               | `http://127.0.0.1:8545` | Anvil local, or `https://data-seed-prebsc-1-s1.bnbchain.org:8545` for BNB testnet |
+| `DARK_MATTER_CHAIN_ID`              | `31337`                 | `97` for BNB testnet                                                              |
+| `DARK_MATTER_RAIL_ID`               | `evm-bnb`               | Canonical rail id                                                                 |
+| `DARK_MATTER_POOL_SOURCE`           | `local`                 | `local` reads `/tmp/adm-agent-state.json`; `mock` for demos; `prod` for hosted    |
+| `DARK_MATTER_SDK_READ_MAX_ATTEMPTS` | `1`                     | Retries for `inspectStatus` / `inspectTimeline`                                   |
+| `DARK_MATTER_SDK_READ_DELAY_MS`     | `300`                   | Delay between read retries                                                        |
 
 Agent signer private keys are **inputs to each call**, not env-loaded by the SDK. Caller decides how to store them.
 
@@ -90,7 +90,7 @@ const result = await client.runStandardLifecycle({
 console.log("contract:", result.agreement.contractAddress);
 console.log("approve A:", result.approveA.txHash);
 console.log("approve B:", result.approveB.txHash);
-console.log("release:",  result.release.txHash);
+console.log("release:", result.release.txHash);
 ```
 
 ## Per-verb reference
@@ -150,6 +150,7 @@ try {
 ```
 
 Input validation happens before the call — expect `INVALID_INPUT` for:
+
 - `signerPrivateKey` not matching `^0x[a-fA-F0-9]{64}$`
 - `contractAddress` not matching `^0x[a-fA-F0-9]{40}$`
 

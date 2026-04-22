@@ -431,3 +431,58 @@ export async function fetchBnbMcpTokenMetadata(
     return null;
   }
 }
+
+export interface RegisterErc8004Result {
+  agentId: number;
+  txHash: string;
+}
+
+/**
+ * Registers a new ERC-8004 agent on the identity registry via BNB MCP.
+ * Returns the assigned agentId and transaction hash on success, null on failure.
+ *
+ * @param privateKey  Owner wallet private key (0x-prefixed)
+ * @param agentUri    Public URL to the agent's metadata JSON
+ * @param network     e.g. "bsc-testnet"
+ */
+export async function registerErc8004Agent(
+  privateKey: string,
+  agentUri: string,
+  network: string,
+): Promise<RegisterErc8004Result | null> {
+  const context = await getContext();
+  if (!context) {
+    return null;
+  }
+
+  try {
+    const result = await context.client.callTool({
+      name: "register_erc8004_agent",
+      arguments: {
+        privateKey,
+        agentURI: agentUri,
+        network,
+        skipConfirmation: true,
+      },
+    });
+
+    const parsed = parseToolPayload(result);
+    if (!parsed) {
+      return null;
+    }
+
+    const agentId = parsed.agentId ?? parsed.tokenId;
+    const txHash = parsed.txHash ?? parsed.transactionHash;
+
+    if (typeof agentId !== "number" && typeof agentId !== "string") {
+      return null;
+    }
+    if (typeof txHash !== "string") {
+      return null;
+    }
+
+    return { agentId: Number(agentId), txHash };
+  } catch {
+    return null;
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "type": "erc8004",
+  "name": "Agent C (Discord Specialist)",
+  "description": "Dark Matter executor agent specialising in Discord community operations and engagement campaigns.",
+  "active": true,
+  "x402Support": true,
+  "services": [
+    {
+      "name": "OASF",
+      "skills": ["escrow-settlement", "community-raids", "discord-ops"],
+      "domains": ["dark-matter", "a2a-settlement", "community-raids"]
+    },
+    {
+      "name": "agentWallet",
+      "endpoint": "eip155:97:0x90F79bf6EB2c4f870365E785982E1f101E93b906"
+    }
+  ],
+  "supportedTrust": ["bsc-testnet"]
+}

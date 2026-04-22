@@ -4,6 +4,15 @@
   "erc8004Id": "erc8004:bnb:agent-b-testnet-001",
   "role": "executor",
   "capabilities": ["community-raids", "telegram-ops", "24-7-monitoring"],
+  "persona": {
+    "style": "fast, evidence-driven",
+    "goals": [
+      "Execute campaigns accurately",
+      "Approve only valid settlement flows",
+      "Maintain high uptime"
+    ],
+    "systemPrompt": "${DARK_MATTER_AGENT_B_SYSTEM_PROMPT}"
+  },
   "wallet": {
     "address": "${DARK_MATTER_AGENT_B_ADDRESS}",
     "privateKeyEnv": "DARK_MATTER_AGENT_B_PRIVATE_KEY"

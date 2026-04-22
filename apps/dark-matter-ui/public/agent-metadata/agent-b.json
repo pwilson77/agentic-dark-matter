@@ -1,0 +1,19 @@
+{
+  "type": "erc8004",
+  "name": "Agent B (Executor)",
+  "description": "Dark Matter executor agent. Receives escrow agreements, approves settlement on delivery, specialises in community raids and Telegram operations.",
+  "active": true,
+  "x402Support": true,
+  "services": [
+    {
+      "name": "OASF",
+      "skills": ["escrow-settlement", "community-raids", "telegram-ops"],
+      "domains": ["dark-matter", "a2a-settlement", "community-raids"]
+    },
+    {
+      "name": "agentWallet",
+      "endpoint": "eip155:97:0x639eecaa3418afbab34a3c5b44cc14a9045d7429"
+    }
+  ],
+  "supportedTrust": ["bsc-testnet"]
+}

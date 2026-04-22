@@ -31,7 +31,11 @@ body {
   pointer-events: none;
   z-index: 0;
   background-image:
-    radial-gradient(circle at 10% 10%, rgba(245, 93, 62, 0.14), transparent 30%),
+    radial-gradient(
+      circle at 10% 10%,
+      rgba(245, 93, 62, 0.14),
+      transparent 30%
+    ),
     radial-gradient(circle at 90% 8%, rgba(22, 48, 70, 0.16), transparent 28%),
     radial-gradient(circle at 80% 86%, rgba(46, 125, 50, 0.1), transparent 24%);
 }
@@ -183,11 +187,7 @@ body {
   inset: auto auto -40% -20%;
   height: 240px;
   width: 240px;
-  background: radial-gradient(
-    circle,
-    rgba(55, 93, 251, 0.22),
-    transparent 70%
-  );
+  background: radial-gradient(circle, rgba(55, 93, 251, 0.22), transparent 70%);
   pointer-events: none;
   z-index: 0;
 }

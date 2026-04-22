@@ -1,10 +1,12 @@
 import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parseEther } from "ethers";
 import {
   approveSettlementViaMcp,
   createAgreementViaMcp,
+  discoverAgentsByCapability,
   negotiateJointVenture,
   releaseViaMcp,
   runRfqSelection,
@@ -20,6 +22,11 @@ interface AgentConfig {
   erc8004Id: string;
   role: AgentRole;
   capabilities: string[];
+  persona?: {
+    systemPrompt?: string;
+    style?: string;
+    goals?: string[];
+  };
   wallet: {
     address: string;
     privateKeyEnv: string;
@@ -48,6 +55,14 @@ interface AgreementStateRecord {
 
 interface RuntimeState {
   agreements: AgreementStateRecord[];
+}
+
+interface DeliveryProof {
+  submittedBy: string;
+  submittedAt: string;
+  summary: string;
+  evidence: string[];
+  proofHash: string;
 }
 
 const DEFAULT_STATE_FILE = "/tmp/adm-agent-state.json";
@@ -149,7 +164,10 @@ async function loadAgentConfig(configPath: string): Promise<AgentConfig> {
   const resolved = path.resolve(process.cwd(), configPath);
   const raw = await readFile(resolved, "utf8");
   // Expand ${ENV_VAR} placeholders so testnet configs can reference env values.
-  const expanded = raw.replace(/\$\{([^}]+)\}/g, (_, key) => process.env[key] ?? "");
+  const expanded = raw.replace(
+    /\$\{([^}]+)\}/g,
+    (_, key) => process.env[key] ?? "",
+  );
   return JSON.parse(expanded) as AgentConfig;
 }
 
@@ -162,6 +180,146 @@ function getPrivateKeyFromEnv(config: AgentConfig): string {
     );
   }
   return value;
+}
+
+function getDeliveryProof(agreement: AgreementStateRecord): DeliveryProof | null {
+  const proof = (agreement.meta as { deliveryProof?: unknown } | undefined)
+    ?.deliveryProof;
+  if (!proof || typeof proof !== "object") return null;
+
+  const typed = proof as Partial<DeliveryProof>;
+  if (
+    typeof typed.submittedBy !== "string" ||
+    typeof typed.submittedAt !== "string" ||
+    typeof typed.summary !== "string" ||
+    !Array.isArray(typed.evidence) ||
+    typeof typed.proofHash !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    submittedBy: typed.submittedBy,
+    submittedAt: typed.submittedAt,
+    summary: typed.summary,
+    evidence: typed.evidence,
+    proofHash: typed.proofHash,
+  };
+}
+
+function buildDeliveryProof(
+  config: AgentConfig,
+  agreement: AgreementStateRecord,
+): DeliveryProof {
+  const submittedAt = nowIso();
+  const summary =
+    process.env.DARK_MATTER_EXECUTION_PROOF_SUMMARY ||
+    `${config.displayName} marked execution as done for ${agreement.agreementId}`;
+  const agreementHash =
+    typeof agreement.meta?.agreementHash === "string"
+      ? agreement.meta.agreementHash
+      : "";
+  const transcriptHash =
+    typeof agreement.meta?.transcriptHash === "string"
+      ? agreement.meta.transcriptHash
+      : "";
+  const evidence = [
+    `agreementId:${agreement.agreementId}`,
+    `contractAddress:${agreement.contractAddress}`,
+    `submittedBy:${config.wallet.address.toLowerCase()}`,
+    `submittedAt:${submittedAt}`,
+    agreementHash ? `agreementHash:${agreementHash}` : "",
+    transcriptHash ? `transcriptHash:${transcriptHash}` : "",
+  ].filter(Boolean);
+
+  const proofHash = createHash("sha256").update(evidence.join("|"), "utf8").digest("hex");
+  return {
+    submittedBy: config.wallet.address.toLowerCase(),
+    submittedAt,
+    summary,
+    evidence,
+    proofHash,
+  };
+}
+
+async function shouldApproveWithLlm(
+  config: AgentConfig,
+  agreement: AgreementStateRecord,
+): Promise<boolean> {
+  if (
+    (process.env.DARK_MATTER_LLM_ENABLED || "false").toLowerCase() !== "true"
+  ) {
+    return true;
+  }
+
+  const apiKey = process.env.DARK_MATTER_LLM_API_KEY;
+  if (!apiKey) {
+    throw new Error(
+      "DARK_MATTER_LLM_API_KEY is required when DARK_MATTER_LLM_ENABLED=true",
+    );
+  }
+
+  const baseUrl =
+    process.env.DARK_MATTER_LLM_BASE_URL || "https://api.openai.com/v1";
+  const model = process.env.DARK_MATTER_LLM_MODEL || "gpt-4o-mini";
+  const siteUrl = process.env.DARK_MATTER_LLM_SITE_URL;
+  const appName = process.env.DARK_MATTER_LLM_APP_NAME;
+  const systemPrompt =
+    config.persona?.systemPrompt ||
+    `You are ${config.displayName}. You are a cautious settlement agent. Respond with APPROVE or REJECT first, then one short reason.`;
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${apiKey}`,
+  };
+  if (siteUrl) {
+    headers["HTTP-Referer"] = siteUrl;
+  }
+  if (appName) {
+    headers["X-OpenRouter-Title"] = appName;
+  }
+
+  const approvalCount = agreement.approvals.length;
+  const deliveryProof = getDeliveryProof(agreement);
+  const userPrompt = [
+    "Decide whether to approve settlement for this escrow agreement.",
+    "Return APPROVE if this looks valid and aligned to the role; otherwise REJECT.",
+    `agentId=${config.agentId}`,
+    `role=${config.role}`,
+    `contractAddress=${agreement.contractAddress}`,
+    `status=${agreement.status}`,
+    `currentApprovals=${approvalCount}`,
+    `hasDeliveryProof=${deliveryProof ? "yes" : "no"}`,
+    `deliveryProofHash=${deliveryProof?.proofHash ?? ""}`,
+  ].join("\n");
+
+  const response = await fetch(
+    `${baseUrl.replace(/\/$/, "")}/chat/completions`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0,
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    const errBody = await response.text();
+    throw new Error(`LLM request failed (${response.status}): ${errBody}`);
+  }
+
+  const payload = (await response.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  const content = payload.choices?.[0]?.message?.content || "";
+  const normalized = content.trim().toUpperCase();
+  return normalized.startsWith("APPROVE");
 }
 
 async function processAgreements(
@@ -185,8 +343,34 @@ async function processAgreements(
       .map((x) => x.toLowerCase())
       .includes(myAddress);
 
+    if (
+      config.role === "executor" &&
+      agreement.status === "deployed" &&
+      !getDeliveryProof(agreement)
+    ) {
+      const proof = buildDeliveryProof(config, agreement);
+      agreement.meta = {
+        ...(agreement.meta || {}),
+        deliveryProof: proof,
+      };
+      changed = true;
+      log(
+        config.agentId,
+        `Submitted delivery proof hash=${proof.proofHash} for ${agreement.contractAddress}`,
+      );
+    }
+
     if (!hasApproved && agreement.status === "deployed") {
       try {
+        const llmAllowsApproval = await shouldApproveWithLlm(config, agreement);
+        if (!llmAllowsApproval) {
+          log(
+            config.agentId,
+            `LLM rejected approval for ${agreement.contractAddress}; skipping.`,
+          );
+          continue;
+        }
+
         log(config.agentId, `Approving ${agreement.contractAddress}`);
         const approval = await approveSettlementViaMcp({
           rpcUrl: config.network.rpcUrl,
@@ -209,6 +393,15 @@ async function processAgreements(
       !agreement.releaseTxHash
     ) {
       try {
+        const proof = getDeliveryProof(agreement);
+        if (!proof) {
+          log(
+            config.agentId,
+            `Release blocked for ${agreement.contractAddress}: missing delivery proof.`,
+          );
+          continue;
+        }
+
         log(config.agentId, `Releasing ${agreement.contractAddress}`);
         const release = await releaseViaMcp({
           rpcUrl: config.network.rpcUrl,
@@ -246,6 +439,12 @@ async function runAgent(configPath: string): Promise<void> {
     config.agentId,
     `Started role=${config.role} wallet=${config.wallet.address}`,
   );
+  if (config.persona?.systemPrompt) {
+    log(
+      config.agentId,
+      `Persona loaded: ${config.persona.systemPrompt.slice(0, 96)}...`,
+    );
+  }
   log(config.agentId, `Polling ${getStateFile()} every ${pollMs}ms`);
 
   // eslint-disable-next-line no-constant-condition
@@ -282,24 +481,75 @@ async function runOrchestrator(): Promise<void> {
   const liquidityBnb = Number.parseFloat(
     process.env.DARK_MATTER_LIQUIDITY_BNB || "0.05",
   );
-  const networkLabel =
-    process.env.DARK_MATTER_NETWORK || "anvil-local";
+  const networkLabel = process.env.DARK_MATTER_NETWORK || "anvil-local";
 
   const rfqCandidates = parseRfqCandidatesFromEnv(
     process.env.DARK_MATTER_RFQ_COUNTERPARTIES_JSON,
     buildDefaultRfqCandidates(agentBAddress),
   );
 
+  // Attempt ERC-8004 registry discovery when BNB MCP is enabled and not
+  // overridden by DARK_MATTER_RFQ_COUNTERPARTIES_JSON.
+  let discoveredCandidates: AgentIdentity[] = [];
+  if (
+    process.env.BNBCHAIN_MCP_ENABLED === "true" &&
+    !process.env.DARK_MATTER_RFQ_COUNTERPARTIES_JSON
+  ) {
+    const mcpNetwork = process.env.BNBCHAIN_MCP_NETWORK || "bsc-testnet";
+    const rfqObjective = "community-raids";
+    log(
+      "orchestrator",
+      `Discovering ERC-8004 agents for capability="${rfqObjective}" on ${mcpNetwork}...`,
+    );
+    try {
+      const discovered = await discoverAgentsByCapability(
+        rfqObjective,
+        mcpNetwork,
+        30,
+      );
+      if (discovered.length > 0) {
+        log(
+          "orchestrator",
+          `Discovered ${discovered.length} on-chain agent(s) from ERC-8004 registry.`,
+        );
+        discoveredCandidates = discovered.map((a, i) => ({
+          id: `registry-agent-${a.agentId}`,
+          displayName: a.metadata.name ?? `Registry Agent #${a.agentId}`,
+          erc8004Id: `erc8004:bnb:${a.agentId}`,
+          capabilities:
+            a.matchedCapabilities.length > 0
+              ? a.matchedCapabilities
+              : ["community-raids"],
+          walletAddress: a.agentWallet ?? a.owner,
+        }));
+      } else {
+        log(
+          "orchestrator",
+          "No ERC-8004 agents matched. Falling back to fixture candidates.",
+        );
+      }
+    } catch (err) {
+      log(
+        "orchestrator",
+        `ERC-8004 discovery error: ${String(err)}. Falling back to fixture candidates.`,
+      );
+    }
+  }
+
+  // Use discovered candidates if available, otherwise use fixture/env candidates.
+  const effectiveCandidatePool =
+    discoveredCandidates.length > 0 ? discoveredCandidates : rfqCandidates;
+
   const strictWalletMatch =
     (process.env.DARK_MATTER_RFQ_STRICT_AGENT_B || "true").toLowerCase() !==
     "false";
   const eligibleCandidates = strictWalletMatch
-    ? rfqCandidates.filter(
+    ? effectiveCandidatePool.filter(
         (candidate) =>
           !candidate.walletAddress ||
           candidate.walletAddress.toLowerCase() === agentBAddress.toLowerCase(),
       )
-    : rfqCandidates;
+    : effectiveCandidatePool;
   const effectiveCandidates =
     eligibleCandidates.length > 0
       ? eligibleCandidates
@@ -328,6 +578,8 @@ async function runOrchestrator(): Promise<void> {
   }
 
   const selectedCounterparty = rfq.selected.candidate;
+  const selectedCounterpartyAddress =
+    selectedCounterparty.walletAddress || agentBAddress;
 
   const offer = {
     proposer: {
@@ -356,6 +608,10 @@ async function runOrchestrator(): Promise<void> {
   }
 
   log("orchestrator", `Accepted agreementId=${negotiated.agreementId}`);
+  log(
+    "orchestrator",
+    `Counterparty selected=${selectedCounterparty.displayName} wallet=${selectedCounterpartyAddress}`,
+  );
 
   const transcript = await storeEncryptedTranscript({
     agreementId: negotiated.agreementId,
@@ -375,7 +631,7 @@ async function runOrchestrator(): Promise<void> {
       rpcUrl,
       privateKey: deployerKey,
       agentAAddress,
-      agentBAddress,
+      agentBAddress: selectedCounterpartyAddress,
       valueWei: parseEther(String(offer.terms.liquidityBnb)).toString(),
       chainId,
     },
@@ -386,7 +642,7 @@ async function runOrchestrator(): Promise<void> {
     agreementId: negotiated.agreementId,
     contractAddress: String(agreement.contractAddress || ""),
     agentA: agentAAddress,
-    agentB: agentBAddress,
+    agentB: selectedCounterpartyAddress,
     status: "deployed",
     approvals: [],
     approveTxHashes: {},

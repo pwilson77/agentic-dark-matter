@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type PoolStatus = "live" | "settling" | "completed" | "watchlist";
@@ -435,6 +436,26 @@ export default function Page() {
   return (
     <main className="min-h-screen p-4 md:p-8">
       <section className="mx-auto flex w-full max-w-[1400px] flex-col gap-6 xl:w-[82vw]">
+        <nav className="panel flex flex-wrap items-center justify-between gap-3 p-3 md:p-4">
+          <div className="flex items-center gap-2">
+            <Link
+              href="/"
+              className="rounded-full border border-surface-300 bg-white px-3 py-1.5 text-sm font-semibold text-surface-800 transition hover:-translate-y-0.5"
+            >
+              Home
+            </Link>
+            <Link
+              href="/docs"
+              className="rounded-full border border-surface-300 bg-white px-3 py-1.5 text-sm font-semibold text-surface-800 transition hover:-translate-y-0.5"
+            >
+              Docs
+            </Link>
+          </div>
+          <span className="rounded-full border border-brand-200 bg-brand-50 px-3 py-1 text-[11px] font-medium text-brand-700">
+            Dashboard · live session view
+          </span>
+        </nav>
+
         <HeroStrip
           data={data}
           activePool={activePool}
@@ -455,7 +476,8 @@ export default function Page() {
                   </p>
                 </div>
                 <span className="rounded-full border border-surface-200 bg-surface-50 px-3 py-1 text-[11px] text-surface-600">
-                  {filteredPools.length}/{pools.length} {sourceBadge(data?.source)}
+                  {filteredPools.length}/{pools.length}{" "}
+                  {sourceBadge(data?.source)}
                 </span>
               </summary>
 
@@ -526,16 +548,13 @@ export default function Page() {
 
             <ProofRibbon pool={activePool} />
 
-            <details
-              className="panel p-5 md:p-6 open:shadow-card"
-              open
-            >
+            <details className="panel p-5 md:p-6 open:shadow-card" open>
               <summary className="flex cursor-pointer items-center justify-between gap-3">
                 <div>
                   <p className="eyebrow">Transcript &amp; timeline</p>
                   <p className="mt-1 text-sm text-surface-600">
-                    Step-by-step record of discovery, negotiation, and
-                    on-chain settlement.
+                    Step-by-step record of discovery, negotiation, and on-chain
+                    settlement.
                   </p>
                 </div>
                 <span className="rounded-full border border-surface-200 bg-surface-50 px-3 py-1 text-[11px] text-surface-600">
@@ -563,14 +582,14 @@ export default function Page() {
 
         {!activePool && !isLoading && (
           <div className="panel p-6 text-sm text-surface-600">
-            No active agreement yet. Run the orchestrator to produce a
-            settled pool.
+            No active agreement yet. Run the orchestrator to produce a settled
+            pool.
           </div>
         )}
 
         <footer className="text-center text-[11px] text-surface-500">
-          Agentic Dark Matter · agent-to-agent settlement on BNB Chain ·
-          testnet demo
+          Agentic Dark Matter · agent-to-agent settlement on BNB Chain · testnet
+          demo
         </footer>
       </section>
     </main>
@@ -618,9 +637,9 @@ function HeroStrip({
           Autonomous agents negotiating and settling trust on-chain.
         </h1>
         <p className="mt-2 max-w-3xl text-sm text-surface-600 md:text-base">
-          Two agents discover each other, run an RFQ auction to price the
-          work, deploy an escrow, exchange approvals, and release funds —
-          end-to-end, with BscScan proof for every step.
+          Two agents discover each other, run an RFQ auction to price the work,
+          deploy an escrow, exchange approvals, and release funds — end-to-end,
+          with BscScan proof for every step.
         </p>
 
         {isLoading && !activePool && (
@@ -904,8 +923,8 @@ function RfqAuctionPanel({ pool }: { pool: PoolItem }) {
       </div>
 
       <p className="mt-4 text-[11px] text-surface-500">
-        Scoring weights · price 35% · ETA 20% · reliability 25% · capability
-        fit 20%. Ties broken by score → ETA → price → id.
+        Scoring weights · price 35% · ETA 20% · reliability 25% · capability fit
+        20%. Ties broken by score → ETA → price → id.
       </p>
     </article>
   );
@@ -1023,9 +1042,7 @@ function CopyChip({
       className="inline-flex items-center gap-1.5 rounded-full border border-surface-200 bg-white px-2.5 py-1 text-[11px] font-mono text-surface-700 transition hover:border-brand-300 hover:text-brand-700"
       title={value}
     >
-      <span className="font-sans font-semibold text-surface-500">
-        {label}
-      </span>
+      <span className="font-sans font-semibold text-surface-500">{label}</span>
       <span>{full ? shorten(value, 8) : shorten(value, 6)}</span>
       <span className="text-[10px] text-surface-400">
         {copied ? "copied" : "copy"}
@@ -1189,8 +1206,9 @@ function addressLink(addr: string): string {
   return `https://testnet.bscscan.com/address/${addr}`;
 }
 
-function findAgent(pool: PoolItem, nameLower: string): DiscoveryAgent | undefined {
-  return pool.discoveredAgents.find(
-    (a) => a.name.toLowerCase() === nameLower,
-  );
+function findAgent(
+  pool: PoolItem,
+  nameLower: string,
+): DiscoveryAgent | undefined {
+  return pool.discoveredAgents.find((a) => a.name.toLowerCase() === nameLower);
 }

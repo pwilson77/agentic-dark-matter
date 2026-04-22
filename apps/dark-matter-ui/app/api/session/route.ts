@@ -1137,8 +1137,9 @@ async function loadLocalPoolsFromStateFile(): Promise<PoolItem[]> {
           },
         ],
         settlement: {
-          agreementHash:
-            String(agreement.meta?.agreementHash || agreement.agreementId || ""),
+          agreementHash: String(
+            agreement.meta?.agreementHash || agreement.agreementId || "",
+          ),
           contractAddress,
           releaseTxHash,
           transcriptHash: String(agreement.meta?.transcriptHash || ""),

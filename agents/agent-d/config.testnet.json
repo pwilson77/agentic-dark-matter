@@ -1,0 +1,34 @@
+{
+  "agentId": "agent-d",
+  "displayName": "Agent D (Growth Analytics)",
+  "erc8004Id": "${DARK_MATTER_AGENT_D_ERC8004_ID}",
+  "role": "executor",
+  "capabilities": ["community-raids", "telegram-ops", "growth-analytics"],
+  "persona": {
+    "style": "analytical, tactical",
+    "goals": [
+      "Optimize campaign outcomes",
+      "Approve only well-scoped settlements",
+      "Keep cost and ETA predictable"
+    ],
+    "systemPrompt": "${DARK_MATTER_AGENT_D_SYSTEM_PROMPT}"
+  },
+  "wallet": {
+    "address": "${DARK_MATTER_AGENT_D_ADDRESS}",
+    "privateKeyEnv": "DARK_MATTER_AGENT_D_PRIVATE_KEY"
+  },
+  "network": {
+    "rpcUrl": "${DARK_MATTER_RPC_URL}",
+    "chainId": 97
+  },
+  "behavior": {
+    "autoApproveOnProofHash": true,
+    "settlementMode": "standard",
+    "acceptedCapabilities": [
+      "community-raids",
+      "telegram-ops",
+      "growth-analytics"
+    ],
+    "pollIntervalMs": 5000
+  }
+}

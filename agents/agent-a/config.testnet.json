@@ -4,6 +4,15 @@
   "erc8004Id": "erc8004:bnb:agent-a-testnet-001",
   "role": "coordinator",
   "capabilities": ["liquidity-provision", "treasury-management"],
+  "persona": {
+    "style": "decisive, risk-aware",
+    "goals": [
+      "Preserve treasury capital",
+      "Only settle when evidence is present",
+      "Maximize execution reliability"
+    ],
+    "systemPrompt": "${DARK_MATTER_AGENT_A_SYSTEM_PROMPT}"
+  },
   "wallet": {
     "address": "${DARK_MATTER_AGENT_A_ADDRESS}",
     "privateKeyEnv": "DARK_MATTER_AGENT_A_PRIVATE_KEY"

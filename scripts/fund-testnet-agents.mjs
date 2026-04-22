@@ -34,7 +34,10 @@ function parseEnvFile(filePath) {
     const eq = trimmed.indexOf("=");
     if (eq < 0) continue;
     const key = trimmed.slice(0, eq).trim();
-    const value = trimmed.slice(eq + 1).trim().replace(/^["']|["']$/g, "");
+    const value = trimmed
+      .slice(eq + 1)
+      .trim()
+      .replace(/^["']|["']$/g, "");
     if (value) env[key] = value;
   }
   return env;
@@ -64,7 +67,9 @@ async function main() {
 
   if (!existsSync(envFile)) {
     console.error(`\n  Error: env file not found: ${envFile}`);
-    console.error(`  Copy .env.testnet.example → .env.testnet and fill in your keys.\n`);
+    console.error(
+      `  Copy .env.testnet.example → .env.testnet and fill in your keys.\n`,
+    );
     process.exit(1);
   }
 
@@ -81,11 +86,15 @@ async function main() {
     process.exit(1);
   }
   if (!deployerKey) {
-    console.error("  Error: DARK_MATTER_DEPLOYER_PRIVATE_KEY not set in env file.");
+    console.error(
+      "  Error: DARK_MATTER_DEPLOYER_PRIVATE_KEY not set in env file.",
+    );
     process.exit(1);
   }
   if (!agentBKey) {
-    console.error("  Error: DARK_MATTER_AGENT_B_PRIVATE_KEY not set in env file.");
+    console.error(
+      "  Error: DARK_MATTER_AGENT_B_PRIVATE_KEY not set in env file.",
+    );
     process.exit(1);
   }
 
@@ -147,18 +156,26 @@ async function main() {
   const cyclesW2 = Math.floor((bal2 - 0.001) / perCycleW2);
 
   console.log(`  Gas estimate (${gasGwei} Gwei):`);
-  console.log(`    Deploy + release (Wallet 1): ~${fmt(deployCost + releaseCost)} + ${liquidityBnb} BNB escrow = ${fmt(perCycleW1)}/cycle`);
+  console.log(
+    `    Deploy + release (Wallet 1): ~${fmt(deployCost + releaseCost)} + ${liquidityBnb} BNB escrow = ${fmt(perCycleW1)}/cycle`,
+  );
   console.log(`    Approve (Wallet 2)          : ~${fmt(perCycleW2)}/cycle`);
   console.log(``);
   console.log(`  Estimated agreement cycles:`);
-  console.log(`    Wallet 1: ~${Math.max(0, cyclesW1)} cycles before hitting buffer`);
+  console.log(
+    `    Wallet 1: ~${Math.max(0, cyclesW1)} cycles before hitting buffer`,
+  );
   if (!sameWallet) {
-    console.log(`    Wallet 2: ~${Math.max(0, cyclesW2)} cycles before hitting buffer`);
+    console.log(
+      `    Wallet 2: ~${Math.max(0, cyclesW2)} cycles before hitting buffer`,
+    );
   }
   console.log(``);
 
   if (sameWallet) {
-    console.log(`  ✓ Single-wallet mode: both agents share wallet 1. No transfer needed.\n`);
+    console.log(
+      `  ✓ Single-wallet mode: both agents share wallet 1. No transfer needed.\n`,
+    );
     process.exit(0);
   }
 
@@ -167,28 +184,40 @@ async function main() {
   const w1CanCover = bal1 >= AGENT_B_TOP_UP_BNB + perCycleW1 + 0.01;
 
   if (!needsTopUp) {
-    console.log(`  ✓ Agent B is sufficiently funded (${fmt(bal2)} ≥ minimum ${fmt(AGENT_B_MIN_BNB)}).`);
+    console.log(
+      `  ✓ Agent B is sufficiently funded (${fmt(bal2)} ≥ minimum ${fmt(AGENT_B_MIN_BNB)}).`,
+    );
     console.log(`    No transfer needed.\n`);
     process.exit(0);
   }
 
-  console.log(`  ⚠ Agent B balance (${fmt(bal2)}) is below minimum (${fmt(AGENT_B_MIN_BNB)}).`);
+  console.log(
+    `  ⚠ Agent B balance (${fmt(bal2)}) is below minimum (${fmt(AGENT_B_MIN_BNB)}).`,
+  );
 
   if (!w1CanCover) {
     console.log(`\n  ✗ Wallet 1 (${fmt(bal1)}) doesn't have enough to cover:`);
-    console.log(`    Top-up ${fmt(AGENT_B_TOP_UP_BNB)} + one cycle ${fmt(perCycleW1)} + buffer 0.01 BNB`);
+    console.log(
+      `    Top-up ${fmt(AGENT_B_TOP_UP_BNB)} + one cycle ${fmt(perCycleW1)} + buffer 0.01 BNB`,
+    );
     console.log(`\n  Get more testnet BNB from:`);
     console.log(`    https://testnet.binance.org/faucet-smart`);
     console.log(`    https://faucet.quicknode.com/bsc\n`);
     process.exit(1);
   }
 
-  console.log(`\n  Proposed transfer: ${fmt(AGENT_B_TOP_UP_BNB)} from Wallet 1 → Wallet 2`);
-  console.log(`    After: Wallet 1 ~${fmt(bal1 - AGENT_B_TOP_UP_BNB)}, Wallet 2 ~${fmt(bal2 + AGENT_B_TOP_UP_BNB)}\n`);
+  console.log(
+    `\n  Proposed transfer: ${fmt(AGENT_B_TOP_UP_BNB)} from Wallet 1 → Wallet 2`,
+  );
+  console.log(
+    `    After: Wallet 1 ~${fmt(bal1 - AGENT_B_TOP_UP_BNB)}, Wallet 2 ~${fmt(bal2 + AGENT_B_TOP_UP_BNB)}\n`,
+  );
 
-  const shouldSend = sendFlag || await confirm("  Send transfer now?");
+  const shouldSend = sendFlag || (await confirm("  Send transfer now?"));
   if (!shouldSend) {
-    console.log("\n  Skipped. Re-run with --send to transfer without prompt.\n");
+    console.log(
+      "\n  Skipped. Re-run with --send to transfer without prompt.\n",
+    );
     process.exit(0);
   }
 

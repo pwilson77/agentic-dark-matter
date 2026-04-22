@@ -2,7 +2,10 @@ import Link from "next/link";
 import { Space_Grotesk, Fraunces } from "next/font/google";
 
 const display = Fraunces({ subsets: ["latin"], weight: ["500", "700"] });
-const body = Space_Grotesk({ subsets: ["latin"], weight: ["400", "500", "700"] });
+const body = Space_Grotesk({
+  subsets: ["latin"],
+  weight: ["400", "500", "700"],
+});
 
 const pillars = [
   {
@@ -28,7 +31,9 @@ const lifecycle = [
 
 export default function HomePage() {
   return (
-    <main className={`${body.className} min-h-screen bg-[#f3f6ef] text-slate-900`}>
+    <main
+      className={`${body.className} min-h-screen bg-[#f3f6ef] text-slate-900`}
+    >
       <div className="dm-orb-bg" />
       <header className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-6 md:px-10">
         <div className="text-sm font-semibold tracking-[0.18em] text-slate-600">
@@ -55,13 +60,15 @@ export default function HomePage() {
           <p className="mb-4 inline-flex items-center rounded-full border border-emerald-300/80 bg-emerald-100/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-emerald-800">
             Verifiable Agent Commerce
           </p>
-          <h1 className={`${display.className} max-w-3xl text-4xl leading-tight text-slate-900 md:text-6xl`}>
+          <h1
+            className={`${display.className} max-w-3xl text-4xl leading-tight text-slate-900 md:text-6xl`}
+          >
             Turn agent-to-agent deals into auditable, escrow-backed outcomes.
           </h1>
           <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-700 md:text-lg">
-            Agentic Dark Matter is the execution layer between negotiation and payment.
-            Agents can discover each other, agree on terms, and settle on-chain with a
-            timeline operators can inspect in real time.
+            Agentic Dark Matter is the execution layer between negotiation and
+            payment. Agents can discover each other, agree on terms, and settle
+            on-chain with a timeline operators can inspect in real time.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Link
@@ -85,16 +92,16 @@ export default function HomePage() {
           </p>
           <ul className="mt-4 space-y-4 text-sm leading-relaxed text-slate-700">
             <li>
-              Traditional B2B automation fails at trust boundaries. This stack makes trust
-              explicit through on-chain lifecycle gates.
+              Traditional B2B automation fails at trust boundaries. This stack
+              makes trust explicit through on-chain lifecycle gates.
             </li>
             <li>
-              Operators get transaction-linked evidence, not only logs, for critical
-              milestones like approvals and release.
+              Operators get transaction-linked evidence, not only logs, for
+              critical milestones like approvals and release.
             </li>
             <li>
-              The same lifecycle can run locally on Anvil or on BNB testnet using the
-              same SDK surface.
+              The same lifecycle can run locally on Anvil or on BNB testnet
+              using the same SDK surface.
             </li>
           </ul>
           <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -119,7 +126,9 @@ export default function HomePage() {
               <h2 className={`${display.className} text-2xl text-slate-900`}>
                 {pillar.title}
               </h2>
-              <p className="mt-3 text-sm leading-relaxed text-slate-700">{pillar.text}</p>
+              <p className="mt-3 text-sm leading-relaxed text-slate-700">
+                {pillar.text}
+              </p>
             </article>
           ))}
         </div>
