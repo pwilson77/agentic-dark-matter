@@ -14,8 +14,9 @@ It combines a typed shared core, a runnable agent runtime, a demo-oriented opera
 ## Overview
 
 - **Lifecycle core:** canonical create/approve/release/timeout semantics via shared MCP adapters.
-- **RFQ auction:** deterministic seeded scoring (price / ETA / reliability / capability fit) picks the counterparty before escrow deploys.
-- **Agent runtime:** two separately-running agents (coordinator + executor) driven by config and shared state.
+- **RFQ marketplace:** one coordinator (Agent A) posts a request-for-quote; multiple executors (Agents B, C, …) submit competing bids; the coordinator picks a winner before escrow deploys.
+- **LLM-driven decisioning (with deterministic fallback):** when `DARK_MATTER_LLM_ENABLED=true`, each agent uses an LLM (any OpenAI-compatible endpoint — OpenRouter/DeepSeek, OpenAI, local vLLM, etc.) to craft bid rationale, rank bids, and approve settlement. When LLM is disabled, a deterministic seeded scorer (price 35% / ETA 20% / reliability 25% / capability fit 20%) is used instead, so the demo is fully reproducible offline.
+- **Interactive orchestrator:** `npm run demo:chat` prompts the user for the task (objective, capability, budget, ETA, min bids) and posts a real RFQ on their behalf.
 - **Demo UI:** single-page narrative — hero + agents + RFQ leaderboard + on-chain proof ribbon + transcript timeline, with BscScan links for every tx.
 - **Observability and controls:** session API timeline, operator action endpoints (gated behind `?operator=1`), parity and runtime verification scripts.
 
@@ -23,20 +24,27 @@ It combines a typed shared core, a runnable agent runtime, a demo-oriented opera
 
 ```mermaid
 flowchart LR
+	USR[User via demo:chat]
 	OA[Orchestrator Mode]
 	SA[Agent A - Coordinator]
 	SB[Agent B - Executor]
+	SC2[Agent C - Executor]
 	ST[(Shared State\n/tmp/adm-agent-state.json)]
 
-	OA -->|create agreement + register| ST
-	SA -->|poll + approve + release| ST
-	SB -->|poll + approve| ST
+	USR -->|objective + capability + budget| OA
+	OA -->|post RFQ| ST
+	SB -->|poll + LLM bid| ST
+	SC2 -->|poll + LLM bid| ST
+	SA -->|LLM rank bids + select winner| ST
+	OA -->|deploy escrow after selection| ST
+	SB -->|submit delivery proof + approve| ST
+	SA -->|approve + release| ST
 
-	OA -->|createAgreementViaMcp| SC[shared-core]
-	SA -->|approveSettlementViaMcp\nreleaseViaMcp| SC
-	SB -->|approveSettlementViaMcp| SC
+	OA -->|createAgreementViaMcp| SHC[shared-core]
+	SA -->|approveSettlementViaMcp\nreleaseViaMcp| SHC
+	SB -->|approveSettlementViaMcp| SHC
 
-	SC -->|deploy/approve/release| CH[(Anvil/BSC Chain)]
+	SHC -->|deploy/approve/release| CH[(Anvil/BSC Chain)]
 	CH -->|events + status| UI[dark-matter-ui /api/session]
 	UI -->|timeline + operator actions| OP[Operator Dashboard]
 ```
@@ -49,12 +57,16 @@ The architecture is split into three boundaries so behavior is predictable and a
 
 End-to-end lifecycle sequence:
 
-1. Orchestrator creates agreement context and escrow state, then records shared runtime state.
-2. Agent A and Agent B independently poll and approve through the same lifecycle methods.
-3. Coordinator releases only after approvals satisfy settlement conditions.
-4. Chain outcomes and timeline events are surfaced through the session API for operator actions.
+1. User types the task into `demo:chat` (objective, capability, budget, ETA, min bids).
+2. Orchestrator posts an RFQ record into shared state on behalf of Agent A.
+3. Executor agents (B, C, …) poll, gate by capability, compute a quote/ETA, and use an LLM to write bid rationale. They write their bids into shared state.
+4. Agent A (coordinator) waits for `minBids`, then uses an LLM to rank the bids and select a winner with strict-JSON reasoning. A deterministic scorer is used if LLM is disabled.
+5. Orchestrator negotiates final terms with the winner, deploys the escrow contract, and registers the agreement artifact.
+6. Executor submits a delivery proof hash, then both parties approve settlement (each approval guarded by an LLM review that checks for a valid proof).
+7. Coordinator releases escrow only after both approvals and a valid proof are present.
+8. Chain outcomes and timeline events are surfaced through the session API for the operator UI.
 
-The orchestrator is a control mode in `@adm/agent-runtime`, not a third autonomous agent role.
+The orchestrator is a control mode in `@adm/agent-runtime`, not a fourth autonomous agent role.
 
 Why this structure works:
 
@@ -231,9 +243,23 @@ Two processes, one shared state file, one chain:
 
 See [Implemented Multi-Agent Demo Flow](#implemented-multi-agent-demo-flow) for the exact terminal commands on local anvil and BNB testnet.
 
-### RFQ auction
+### RFQ marketplace
 
-Before escrow deploys, the orchestrator runs a deterministic seeded auction to pick the counterparty. Scoring lives in [packages/shared-core/src/negotiation.ts](packages/shared-core/src/negotiation.ts) with weights: price 35%, ETA 20%, reliability 25%, capability fit 20%. Ties resolved by score → ETA → price → id.
+The orchestrator posts an RFQ record before any escrow is deployed. Executor agents compete with bids, and the coordinator picks a winner.
+
+- Deterministic scorer: [packages/shared-core/src/negotiation.ts](packages/shared-core/src/negotiation.ts) — `runRfqSelection()` with weights price 35%, ETA 20%, reliability 25%, capability fit 20%. Ties resolved by score → ETA → price → id.
+- LLM-driven bidding and selection: [apps/agent-runtime/src/cli.ts](apps/agent-runtime/src/cli.ts) `maybeSubmitBid()` and `maybeSelectWinner()`. The coordinator demands strict JSON (`{winnerBidId, reasoning}`); a tolerant parser falls back to a heuristic if the model returns prose. If `DARK_MATTER_LLM_ENABLED` is unset, both paths degrade to the deterministic scorer so the demo remains reproducible offline.
+
+To enable LLM mode locally, add any OpenAI-compatible endpoint to your `.env.testnet`:
+
+```bash
+DARK_MATTER_LLM_ENABLED=true
+DARK_MATTER_LLM_BASE_URL=https://openrouter.ai/api/v1
+DARK_MATTER_LLM_MODEL=deepseek/deepseek-chat-v3.1
+DARK_MATTER_LLM_API_KEY=sk-or-...
+```
+
+`demo:up` automatically sources these values from `.env.testnet` (LLM vars only) while forcing RPC to the local anvil chain.
 
 ### Validation
 
@@ -247,38 +273,61 @@ This deploys, runs both approvals, and releases against the configured RPC.
 
 ## Implemented Multi-Agent Demo Flow
 
-This is the implemented runtime path using separate processes (not a single one-shot script).
+### Local (anvil, chainId=31337) — 3-terminal quick start
 
-### Local (anvil, chainId=31337)
+One terminal runs the whole runtime (anvil + all agents with colored interleaved logs), one runs the UI, one runs the interactive orchestrator.
 
-**Terminal 1 (local chain):**
+**Terminal 1 — anvil + all three agents (colored prefixed logs):**
 
 ```bash
-npm run localchain:start
+npm run demo:up
 ```
 
-**Terminal 2 (agent A coordinator):**
+What this does (see [scripts/demo-up.mjs](scripts/demo-up.mjs)):
+- starts anvil on `127.0.0.1:8545`,
+- clears stale state / log / session files in `/tmp`,
+- loads `DARK_MATTER_LLM_*` values from `.env.testnet` (if present) so the agents can use LLMs,
+- forces RPC/chainId to local anvil,
+- launches Agent A, B, C as child processes and streams their stdout with color-coded prefixes,
+- Ctrl+C tears everything down.
+
+**Terminal 2 — UI pointed at the local state file:**
 
 ```bash
-npm run agent:start:a
+npm run ui:dev:local
 ```
 
-**Terminal 3 (agent B executor):**
+Open [http://localhost:3000/dashboard](http://localhost:3000/dashboard). The dashboard reads `/tmp/adm-agent-state.json` directly and renders real bids, real wallets, real tx hashes. (The deployed Vercel build can’t see `/tmp`, so it falls back to bundled fixtures — see the Vercel section below.)
+
+**Terminal 3 — interactive orchestrator:**
 
 ```bash
-npm run agent:start:b
+npm run demo:chat
 ```
 
-**Terminal 4 (orchestrator mode):**
+You’ll be prompted for the task (Enter accepts the default in `[brackets]`):
 
-```bash
-npm run demo:orchestrate
+```
+What do you need done? [Coordinate 24h community raid across Telegram and Discord for launch week.]:
+Primary capability required (e.g. community-raids, telegram-ops, discord-ops, growth-analytics) [community-raids]:
+Secondary capabilities (comma-separated, optional) [telegram-ops,discord-ops]:
+Max budget in BNB [1]:
+Max ETA in minutes [45]:
+Minimum bids required before Agent A selects [2]:
 ```
 
-**Terminal 5 (UI):**
+A scripted non-interactive variant is available as `npm run demo:post-task -- --capability community-raids --budget 1 --eta 45 --min-bids 2` for CI.
+
+### Legacy (one terminal per process)
+
+For low-level debugging you can still run each piece separately:
 
 ```bash
-DARK_MATTER_CHAT_VISIBILITY=full npm --workspace @adm/dark-matter-ui run dev -- --hostname 0.0.0.0 --port 3006
+npm run localchain:start   # Terminal 1
+npm run agent:start:a      # Terminal 2
+npm run agent:start:b      # Terminal 3
+npm run agent:start:c      # Terminal 4
+npm run demo:chat          # Terminal 5
 ```
 
 ### BNB testnet (Chapel, chainId=97)
@@ -306,15 +355,18 @@ npm run ui:build:testnet         # production build
 npm run ui:start:testnet         # production serve
 ```
 
-Every contract, approval, and release transaction in the UI links to `testnet.bscscan.com`.
+Every contract, approval, and release transaction in the UI links to `testnet.bscscan.com`.\n\n### Vercel deployment status\n\nThe hosted UI at Vercel ([apps/dark-matter-ui/vercel.json](apps/dark-matter-ui/vercel.json)) currently renders **bundled fixtures only**. Serverless functions on Vercel have no access to `/tmp/adm-agent-state.json` and there are no long-running agent processes on that platform, so real RFQ \u2192 bid \u2192 settlement runs happen locally.\n\nTo see a real run, use the 3-terminal local flow above. Planned next step is wiring shared state to Upstash Redis (or similar) and hosting the agent workers on Fly.io / Railway so the hosted dashboard can reflect live agents.
 
 ### Expected flow
 
-1. Orchestrator negotiates terms and runs an RFQ auction to select the counterparty.
-2. Orchestrator deploys the escrow agreement.
-3. Agent A and Agent B independently approve settlement.
-4. Agent A releases escrow after both approvals.
-5. UI shows completed status with a BscScan-linked proof ribbon (deploy → approve A → approve B → release).
+1. User posts a task through `demo:chat`.
+2. Orchestrator writes an RFQ into shared state.
+3. Executor agents poll, filter by capability, call their LLM to craft bid rationale, and submit bids.
+4. Coordinator (Agent A) waits for `minBids`, calls its LLM to rank bids and select a winner with structured reasoning (deterministic fallback if no LLM).
+5. Orchestrator negotiates terms with the winner and deploys the escrow agreement.
+6. Executor submits a delivery proof hash, then both parties approve (approvals are guarded by LLM review that requires the proof).
+7. Coordinator releases escrow after both approvals.
+8. UI shows completed status with a proof ribbon (deploy → approve A → approve B → release) and a per-pool timeline of RFQ → bids → selection → approvals → release.
 
 ### Demo UI at a glance
 
@@ -355,10 +407,13 @@ Agent runtime state is shared through `/tmp/adm-agent-state.json` (override with
 
 Agent config files:
 
-- [agents/agent-a/config.json](agents/agent-a/config.json) (local)
-- [agents/agent-b/config.json](agents/agent-b/config.json) (local)
+- [agents/agent-a/config.json](agents/agent-a/config.json) (local — coordinator)
+- [agents/agent-b/config.json](agents/agent-b/config.json) (local — executor, Telegram persona)
+- [agents/agent-c/config.json](agents/agent-c/config.json) (local — executor, Discord persona)
 - [agents/agent-a/config.testnet.json](agents/agent-a/config.testnet.json) (BNB testnet)
 - [agents/agent-b/config.testnet.json](agents/agent-b/config.testnet.json) (BNB testnet)
+
+Each config carries a `persona` block (system prompt + style + goals + voice) that the agent passes to the LLM when crafting bids, selection reasoning, and approval decisions.
 
 Runtime entrypoint:
 
