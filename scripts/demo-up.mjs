@@ -49,6 +49,23 @@ if (USE_TESTNET) {
       llmEnv[k] = v;
     }
   }
+  // Resolve ${VAR} placeholders within .env values (supports chained refs).
+  const resolvePlaceholders = (value, depth = 0) => {
+    if (typeof value !== "string" || depth > 5) return value;
+    return value.replace(/\$\{([^}]+)\}/g, (_, key) => fullEnv[key] ?? process.env[key] ?? "");
+  };
+  for (const key of Object.keys(fullEnv)) {
+    let current = fullEnv[key];
+    for (let i = 0; i < 5; i += 1) {
+      const next = resolvePlaceholders(current, i + 1);
+      if (next === current) break;
+      current = next;
+    }
+    fullEnv[key] = current;
+    if (key.startsWith("DARK_MATTER_LLM_") || key === "DARK_MATTER_TRANSCRIPT_SECRET") {
+      llmEnv[key] = current;
+    }
+  }
   // Validate required testnet vars
   const REQUIRED = [
     "DARK_MATTER_RPC_URL",

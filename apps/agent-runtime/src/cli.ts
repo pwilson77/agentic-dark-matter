@@ -393,8 +393,16 @@ async function maybeSelectWinner(
   rfq: RfqRequestRecord,
 ): Promise<{ winnerBidId: string; reasoning: string } | null> {
   if (rfq.status !== "open") return null;
-  if (rfq.postedByAddress.toLowerCase() !== config.wallet.address.toLowerCase())
-    return null;
+  const samePosterByAddress =
+    rfq.postedByAddress.toLowerCase() === config.wallet.address.toLowerCase();
+  const samePosterByAgentId = rfq.postedByAgentId === config.agentId;
+  if (!samePosterByAddress && !samePosterByAgentId) return null;
+  if (!samePosterByAddress && samePosterByAgentId) {
+    log(
+      config.agentId,
+      `RFQ ${rfq.rfqId}: poster address mismatch (${rfq.postedByAddress} vs ${config.wallet.address}); proceeding via postedByAgentId fallback.`,
+    );
+  }
   if (rfq.bids.length < rfq.minBids) {
     log(
       config.agentId,
