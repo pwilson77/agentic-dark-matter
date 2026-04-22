@@ -115,7 +115,19 @@ function nowIso(): string {
 }
 
 function log(scope: string, message: string): void {
-  console.log(`[${scope}] [${nowIso()}] ${message}`);
+  const at = nowIso();
+  console.log(`[${scope}] [${at}] ${message}`);
+  // Best-effort append to a JSONL file so the UI can tail it.
+  const logFile = process.env.AGENT_LOG_FILE || "/tmp/adm-agent-logs.jsonl";
+  try {
+    const line = JSON.stringify({ at, scope, message }) + "\n";
+    // Fire-and-forget; use sync append to preserve ordering and avoid races.
+    // Small messages only, so the cost is negligible.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require("node:fs").appendFileSync(logFile, line);
+  } catch {
+    // ignore — logging must never crash the agent
+  }
 }
 
 function parseArgs(argv: string[]): Map<string, string> {

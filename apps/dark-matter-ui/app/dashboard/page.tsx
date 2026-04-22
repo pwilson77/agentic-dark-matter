@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import AgentLogsPanel from "./AgentLogsPanel";
 
 type PoolStatus = "live" | "settling" | "completed" | "watchlist";
 type TimelineStatus = "info" | "ok" | "warn";
@@ -462,6 +463,8 @@ export default function Page() {
           activeSummary={activePoolSummary}
           isLoading={isLoading}
         />
+
+        <AgentLogsPanel />
 
         {activePool && (
           <>

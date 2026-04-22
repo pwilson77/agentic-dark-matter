@@ -33,11 +33,16 @@ if (!SKIP_LLM && existsSync(envFile)) {
   }
 }
 
-// Clear stale state
+// Clear stale state + logs
 const stateFile = "/tmp/adm-agent-state.json";
+const logFile = "/tmp/adm-agent-logs.jsonl";
 if (existsSync(stateFile)) {
   unlinkSync(stateFile);
   console.log(`[demo-up] cleared stale ${stateFile}`);
+}
+if (existsSync(logFile)) {
+  unlinkSync(logFile);
+  console.log(`[demo-up] cleared stale ${logFile}`);
 }
 
 // ---- colors ----
