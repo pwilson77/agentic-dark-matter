@@ -470,6 +470,8 @@ export default function Page() {
           <>
             <AgentDealRow pool={activePool} />
 
+            <AvailableAgentsPanel />
+
             <details className="panel p-5 md:p-6">
               <summary className="flex cursor-pointer items-center justify-between gap-3">
                 <div>
@@ -837,6 +839,130 @@ function DealCard({ pool }: { pool: PoolItem }) {
   );
 }
 
+interface AvailableAgent {
+  agentId: string;
+  displayName: string;
+  role: string;
+  capabilities: string[];
+  style: string;
+  goals: string[];
+  wallet: string;
+  chainId?: number;
+  status: "online" | "idle";
+}
+
+function AvailableAgentsPanel() {
+  const [agents, setAgents] = useState<AvailableAgent[]>([]);
+  const [source, setSource] = useState<string>("");
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchAgents = async () => {
+      try {
+        const res = await fetch("/api/agents/available", { cache: "no-store" });
+        if (!res.ok) return;
+        const json = (await res.json()) as {
+          ok?: boolean;
+          source?: string;
+          agents?: AvailableAgent[];
+        };
+        if (cancelled) return;
+        setAgents(json.agents || []);
+        setSource(String(json.source || ""));
+        setLoaded(true);
+      } catch {
+        if (!cancelled) setLoaded(true);
+      }
+    };
+    fetchAgents();
+    const id = setInterval(fetchAgents, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+
+  if (!loaded) return null;
+  if (agents.length === 0) return null;
+
+  return (
+    <article className="panel p-5 md:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="eyebrow">Available agents</p>
+          <h2 className="mt-1 text-lg font-semibold text-surface-900">
+            Online roster
+          </h2>
+          <p className="mt-1 text-xs text-surface-600">
+            Agents currently watching the RFQ queue. Any with a matching
+            capability can bid on the next task.
+          </p>
+        </div>
+        <span className="rounded-full border border-surface-200 bg-surface-50 px-3 py-1 text-[11px] text-surface-600">
+          {agents.length} online · {source || "local"}
+        </span>
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+        {agents.map((agent) => {
+          const isCoordinator = agent.role === "coordinator";
+          return (
+            <div
+              key={agent.agentId}
+              className="rounded-xl border border-surface-200 bg-white p-3"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <div
+                    className="flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold text-white"
+                    style={avatarStyle(agent.displayName, agent.wallet)}
+                  >
+                    {agentInitials(agent.displayName)}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-surface-900">
+                      {agent.displayName}
+                    </p>
+                    <p className="text-[11px] text-surface-500">
+                      {isCoordinator ? "Coordinator" : "Executor"}
+                      {agent.style ? ` · ${agent.style}` : ""}
+                    </p>
+                  </div>
+                </div>
+                <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                  online
+                </span>
+              </div>
+
+              <div className="mt-2 flex flex-wrap gap-1">
+                {agent.capabilities.slice(0, 4).map((cap) => (
+                  <span
+                    key={cap}
+                    className="rounded-full border border-surface-200 bg-surface-50 px-2 py-0.5 text-[10px] text-surface-700"
+                  >
+                    {cap}
+                  </span>
+                ))}
+              </div>
+
+              {agent.wallet && (
+                <p
+                  className="mt-2 truncate font-mono text-[10px] text-surface-500"
+                  title={agent.wallet}
+                >
+                  {agent.wallet}
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </article>
+  );
+}
+
 function RfqAuctionPanel({ pool }: { pool: PoolItem }) {
   const ranked = [...pool.rankedCandidates].sort((a, b) => a.rank - b.rank);
   if (ranked.length === 0) return null;
@@ -941,8 +1067,7 @@ function ProofRibbon({ pool }: { pool: PoolItem }) {
   }> = [
     {
       label: "Escrow deployed",
-      hash:
-        pool.settlement.deploymentTxHash || pool.settlement.contractAddress,
+      hash: pool.settlement.deploymentTxHash || pool.settlement.contractAddress,
       kind: pool.settlement.deploymentTxHash ? "tx" : "address",
     },
     {
