@@ -259,7 +259,7 @@ DARK_MATTER_LLM_MODEL=deepseek/deepseek-chat-v3.1
 DARK_MATTER_LLM_API_KEY=sk-or-...
 ```
 
-`demo:up` automatically sources these values from `.env.testnet` (LLM vars only) while forcing RPC to the local anvil chain.
+`demo:up` automatically sources `DARK_MATTER_LLM_*` values from `.env.testnet` (LLM vars only) while forcing RPC to the local anvil chain. You can also run it against BNB testnet by passing `testnet` as a parameter: `npm run demo:up testnet`.
 
 ### Validation
 
@@ -291,6 +291,8 @@ What this does (see [scripts/demo-up.mjs](scripts/demo-up.mjs)):
 - forces RPC/chainId to local anvil,
 - launches Agent A, B, C as child processes and streams their stdout with color-coded prefixes,
 - Ctrl+C tears everything down.
+
+**Note:** The unified launcher also supports `npm run demo:up testnet` for BNB testnet mode (see below).
 
 **Terminal 2 — UI pointed at the local state file:**
 
@@ -331,7 +333,7 @@ npm run agent:start:c      # Terminal 4
 npm run demo:chat          # Terminal 5
 ```
 
-### BNB testnet (Chapel, chainId=97) \u2014 3-terminal quick start
+### BNB testnet (Chapel, chainId=97) — 3-terminal quick start
 
 Same 3-terminal shape as local, but pointed at BSC testnet. Requires 3 funded wallets (Agent A coordinator + Agent B and C executors). See [.env.testnet.example](.env.testnet.example).
 
@@ -348,20 +350,20 @@ Same 3-terminal shape as local, but pointed at BSC testnet. Requires 3 funded wa
    npm run testnet:fund:send     # top up Wallet 2 from Wallet 1 if low
    ```
 
-**Terminal 1 \u2014 agents A/B/C against BSC testnet:**
+**Terminal 1 — agents A/B/C against BSC testnet:**
 
 ```bash
-npm run demo:up:testnet
+npm run demo:up testnet
 ```
 
-What this does (see [scripts/demo-up-testnet.mjs](scripts/demo-up-testnet.mjs)):
+This is the same unified launcher as local mode, but with the `testnet` parameter. It:
 
 - loads the full `.env.testnet` (LLM keys, RPC, chainId=97, all three agent keys),
 - validates that Agent A/B/C keys are present,
 - clears stale `/tmp/adm-agent-state.json` / logs / session files,
-- launches all three agents as child processes with color-coded prefixed logs.
+- connects to the testnet RPC and launches all three agents as child processes with color-coded prefixed logs.
 
-**Terminal 2 \u2014 UI pointed at testnet state:**
+**Terminal 2 — UI pointed at testnet state:**
 
 ```bash
 npm run ui:dev:testnet:state
