@@ -8,6 +8,9 @@ node_modules
 .env.*
 !.env.*.example
 
+# Local scratch / demo notes (never commit)
+*.local.md
+
 # Build outputs
 dist/
 **/dist/
