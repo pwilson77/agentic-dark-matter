@@ -330,27 +330,66 @@ npm run agent:start:c      # Terminal 4
 npm run demo:chat          # Terminal 5
 ```
 
-### BNB testnet (Chapel, chainId=97)
+### BNB testnet (Chapel, chainId=97) \u2014 3-terminal quick start
 
-Fund the two agent wallets once (requires funded Wallet 1 configured in `.env.testnet`):
+Same 3-terminal shape as local, but pointed at BSC testnet. Requires 3 funded wallets (Agent A coordinator + Agent B and C executors). See [.env.testnet.example](.env.testnet.example).
+
+**One-time setup:**
+
+1. Copy `.env.testnet.example` to `.env.testnet` and fill in all three wallets:
+   ```bash
+   cp .env.testnet.example .env.testnet
+   # edit: DARK_MATTER_DEPLOYER_PRIVATE_KEY / AGENT_A_*, AGENT_B_*, AGENT_C_*
+   ```
+2. Fund the executor wallets (get testnet BNB from [testnet.bnbchain.org/faucet-smart](https://testnet.bnbchain.org/faucet-smart) or top up from Wallet 1):
+   ```bash
+   npm run testnet:fund          # balance check (dry-run)
+   npm run testnet:fund:send     # top up Wallet 2 from Wallet 1 if low
+   ```
+
+**Terminal 1 \u2014 agents A/B/C against BSC testnet:**
 
 ```bash
-npm run testnet:fund         # dry-run balance check
-npm run testnet:fund:send    # top up Wallet 2 from Wallet 1
+npm run demo:up:testnet
 ```
 
-Run agents and orchestrator against BNB testnet:
+What this does (see [scripts/demo-up-testnet.mjs](scripts/demo-up-testnet.mjs)):
+- loads the full `.env.testnet` (LLM keys, RPC, chainId=97, all three agent keys),
+- validates that Agent A/B/C keys are present,
+- clears stale `/tmp/adm-agent-state.json` / logs / session files,
+- launches all three agents as child processes with color-coded prefixed logs.
+
+**Terminal 2 \u2014 UI pointed at testnet state:**
+
+```bash
+npm run ui:dev:testnet:state
+```
+
+This reads the same `/tmp/adm-agent-state.json` but renders `bsc-testnet` as the network label so timeline tx hashes link to `testnet.bscscan.com`.
+
+**Terminal 3 \u2014 interactive orchestrator (testnet):**
+
+```bash
+npm run demo:chat:testnet
+```
+
+Same interactive prompt as the local `demo:chat`, but posts the RFQ against BSC testnet and the resulting escrow contract is deployed on Chapel.
+
+### BNB testnet \u2014 legacy per-process flow
+
+For low-level debugging each process can still be started separately:
 
 ```bash
 npm run agent:a:testnet          # Terminal 1
 npm run agent:b:testnet          # Terminal 2
-npm run demo:orchestrate:testnet # Terminal 3
+npm run agent:c:testnet          # Terminal 3
+npm run demo:orchestrate:testnet # Terminal 4 (non-interactive)
+npm run ui:dev:testnet           # Terminal 5 (reads legacy session file)
 ```
 
-UI against testnet state (dev / production build / serve):
+UI production build / serve against testnet:
 
 ```bash
-npm run ui:dev:testnet           # http://127.0.0.1:3000 (dev)
 npm run ui:build:testnet         # production build
 npm run ui:start:testnet         # production serve
 ```
