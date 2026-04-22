@@ -1,20 +1,24 @@
 import { existsSync } from "node:fs";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parseEther } from "ethers";
 import {
   approveSettlementViaMcp,
   createAgreementViaMcp,
-  discoverAgentsByCapability,
   negotiateJointVenture,
   releaseViaMcp,
-  runRfqSelection,
   storeEncryptedTranscript,
 } from "@adm/shared-core";
 import type { AgentIdentity } from "@adm/shared-core";
 
 type AgentRole = "coordinator" | "executor";
+
+interface AgentPersona {
+  systemPrompt?: string;
+  style?: string;
+  goals?: string[];
+}
 
 interface AgentConfig {
   agentId: string;
@@ -22,11 +26,7 @@ interface AgentConfig {
   erc8004Id: string;
   role: AgentRole;
   capabilities: string[];
-  persona?: {
-    systemPrompt?: string;
-    style?: string;
-    goals?: string[];
-  };
+  persona?: AgentPersona;
   wallet: {
     address: string;
     privateKeyEnv: string;
@@ -37,7 +37,52 @@ interface AgentConfig {
   };
   behavior?: {
     pollIntervalMs?: number;
+    acceptedCapabilities?: string[];
   };
+}
+
+interface DeliveryProof {
+  submittedBy: string;
+  submittedAt: string;
+  summary: string;
+  evidence: string[];
+  proofHash: string;
+}
+
+interface BidRecord {
+  bidId: string;
+  agentId: string;
+  agentDisplayName: string;
+  agentAddress: string;
+  erc8004Id: string;
+  capabilities: string[];
+  quoteBnb: number;
+  etaMinutes: number;
+  rationale: string;
+  submittedAt: string;
+}
+
+interface RfqRequestRecord {
+  rfqId: string;
+  capability: string;
+  secondaryCapabilities: string[];
+  objective: string;
+  budgetBnb: number;
+  maxEtaMinutes: number;
+  postedByAgentId: string;
+  postedByAddress: string;
+  postedAt: string;
+  minBids: number;
+  status: "open" | "selected" | "cancelled";
+  bids: BidRecord[];
+  selection?: {
+    winnerBidId: string;
+    winnerAgentId: string;
+    winnerAddress: string;
+    reasoning: string;
+    decidedAt: string;
+  };
+  agreementId?: string;
 }
 
 interface AgreementStateRecord {
@@ -54,69 +99,14 @@ interface AgreementStateRecord {
 }
 
 interface RuntimeState {
+  rfqRequests: RfqRequestRecord[];
   agreements: AgreementStateRecord[];
-}
-
-interface DeliveryProof {
-  submittedBy: string;
-  submittedAt: string;
-  summary: string;
-  evidence: string[];
-  proofHash: string;
 }
 
 const DEFAULT_STATE_FILE = "/tmp/adm-agent-state.json";
 const DEFAULT_RPC_URL = "http://127.0.0.1:8545";
 const DEFAULT_CHAIN_ID = 31337;
 const DEFAULT_TREASURY = "0x1111222233334444555566667777888899990000";
-
-function buildDefaultRfqCandidates(agentBAddress: string): AgentIdentity[] {
-  return [
-    {
-      id: "agent-b",
-      displayName: "Agent B",
-      erc8004Id: "erc8004:bnb:agent-b-001",
-      capabilities: ["community-raids", "telegram-ops"],
-      walletAddress: agentBAddress,
-    },
-    {
-      id: "agent-c",
-      displayName: "Agent C",
-      erc8004Id: "erc8004:bnb:agent-c-001",
-      capabilities: ["community-raids", "discord-ops"],
-      walletAddress: "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
-    },
-    {
-      id: "agent-d",
-      displayName: "Agent D",
-      erc8004Id: "erc8004:bnb:agent-d-001",
-      capabilities: ["community-raids", "telegram-ops", "growth-analytics"],
-      walletAddress: "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
-    },
-  ];
-}
-
-function parseRfqCandidatesFromEnv(
-  envValue: string | undefined,
-  fallback: AgentIdentity[],
-): AgentIdentity[] {
-  if (!envValue) return fallback;
-  try {
-    const parsed = JSON.parse(envValue) as AgentIdentity[];
-    if (!Array.isArray(parsed)) return fallback;
-    const usable = parsed.filter(
-      (item) =>
-        !!item &&
-        typeof item.id === "string" &&
-        typeof item.displayName === "string" &&
-        typeof item.erc8004Id === "string" &&
-        Array.isArray(item.capabilities),
-    );
-    return usable.length > 0 ? usable : fallback;
-  } catch {
-    return fallback;
-  }
-}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -146,11 +136,18 @@ function getStateFile(): string {
 
 async function readState(): Promise<RuntimeState> {
   const stateFile = getStateFile();
-  if (!existsSync(stateFile)) return { agreements: [] };
+  if (!existsSync(stateFile))
+    return { rfqRequests: [], agreements: [] };
   try {
-    return JSON.parse(await readFile(stateFile, "utf8")) as RuntimeState;
+    const parsed = JSON.parse(
+      await readFile(stateFile, "utf8"),
+    ) as Partial<RuntimeState>;
+    return {
+      rfqRequests: Array.isArray(parsed.rfqRequests) ? parsed.rfqRequests : [],
+      agreements: Array.isArray(parsed.agreements) ? parsed.agreements : [],
+    };
   } catch {
-    return { agreements: [] };
+    return { rfqRequests: [], agreements: [] };
   }
 }
 
@@ -163,7 +160,6 @@ async function writeState(state: RuntimeState): Promise<void> {
 async function loadAgentConfig(configPath: string): Promise<AgentConfig> {
   const resolved = path.resolve(process.cwd(), configPath);
   const raw = await readFile(resolved, "utf8");
-  // Expand ${ENV_VAR} placeholders so testnet configs can reference env values.
   const expanded = raw.replace(
     /\$\{([^}]+)\}/g,
     (_, key) => process.env[key] ?? "",
@@ -182,13 +178,310 @@ function getPrivateKeyFromEnv(config: AgentConfig): string {
   return value;
 }
 
+// ---------- LLM helpers ----------
+
+function isLlmEnabled(): boolean {
+  return (
+    (process.env.DARK_MATTER_LLM_ENABLED || "false").toLowerCase() === "true" &&
+    !!process.env.DARK_MATTER_LLM_API_KEY
+  );
+}
+
+async function llmChat(
+  systemPrompt: string,
+  userPrompt: string,
+): Promise<string> {
+  if (!isLlmEnabled()) {
+    throw new Error("LLM not enabled");
+  }
+  const apiKey = process.env.DARK_MATTER_LLM_API_KEY as string;
+  const baseUrl =
+    process.env.DARK_MATTER_LLM_BASE_URL || "https://api.openai.com/v1";
+  const model = process.env.DARK_MATTER_LLM_MODEL || "gpt-4o-mini";
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${apiKey}`,
+  };
+  if (process.env.DARK_MATTER_LLM_SITE_URL) {
+    headers["HTTP-Referer"] = process.env.DARK_MATTER_LLM_SITE_URL;
+  }
+  if (process.env.DARK_MATTER_LLM_APP_NAME) {
+    headers["X-OpenRouter-Title"] = process.env.DARK_MATTER_LLM_APP_NAME;
+  }
+  const response = await fetch(
+    `${baseUrl.replace(/\/$/, "")}/chat/completions`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.4,
+      }),
+    },
+  );
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`LLM request failed (${response.status}): ${body}`);
+  }
+  const payload = (await response.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  return (payload.choices?.[0]?.message?.content || "").trim();
+}
+
+// ---------- deterministic fallbacks ----------
+
+function hashSeed(input: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return Math.abs(hash >>> 0);
+}
+
+function computeBidTerms(
+  config: AgentConfig,
+  rfq: RfqRequestRecord,
+): { quoteBnb: number; etaMinutes: number; capabilityFit: number } {
+  const required = [rfq.capability, ...rfq.secondaryCapabilities].map((c) =>
+    c.toLowerCase(),
+  );
+  const mine = config.capabilities.map((c) => c.toLowerCase());
+  const matches = required.filter((r) => mine.includes(r)).length;
+  const capabilityFit = required.length
+    ? Math.round((matches / required.length) * 100)
+    : 100;
+
+  const seed = hashSeed(`${config.agentId}|${rfq.rfqId}`);
+  const quoteMin = Math.max(0.05, rfq.budgetBnb * 0.4);
+  const quoteMax = Math.max(quoteMin + 0.1, rfq.budgetBnb * 1.05);
+  const quoteRatio = (seed % 700) / 699;
+  const quoteBnb = Number(
+    (quoteMin + (quoteMax - quoteMin) * quoteRatio).toFixed(3),
+  );
+
+  const etaMin = 8;
+  const etaMax = Math.max(etaMin + 1, Math.floor(rfq.maxEtaMinutes * 1.1));
+  const etaMinutes = etaMin + (seed % (etaMax - etaMin + 1));
+
+  return { quoteBnb, etaMinutes, capabilityFit };
+}
+
+function stubBidRationale(
+  config: AgentConfig,
+  rfq: RfqRequestRecord,
+  terms: { quoteBnb: number; etaMinutes: number; capabilityFit: number },
+): string {
+  const style = config.persona?.style || "concise";
+  return `[${style}] ${config.displayName} can deliver ${rfq.capability} work within ${terms.etaMinutes}m for ${terms.quoteBnb} BNB; capability match ${terms.capabilityFit}%.`;
+}
+
+// ---------- executor: bid generation ----------
+
+function isCapabilityMatch(
+  config: AgentConfig,
+  rfq: RfqRequestRecord,
+): boolean {
+  const required = [rfq.capability, ...rfq.secondaryCapabilities].map((c) =>
+    c.toLowerCase(),
+  );
+  const mine = config.capabilities.map((c) => c.toLowerCase());
+  return required.some((r) => mine.includes(r));
+}
+
+async function maybeSubmitBid(
+  config: AgentConfig,
+  rfq: RfqRequestRecord,
+): Promise<BidRecord | null> {
+  if (rfq.status !== "open") return null;
+  const myAddress = config.wallet.address.toLowerCase();
+  if (rfq.bids.some((b) => b.agentAddress.toLowerCase() === myAddress))
+    return null;
+  if (!isCapabilityMatch(config, rfq)) {
+    log(
+      config.agentId,
+      `RFQ ${rfq.rfqId}: capability="${rfq.capability}" not in my set [${config.capabilities.join(", ")}]; skipping.`,
+    );
+    return null;
+  }
+
+  log(
+    config.agentId,
+    `RFQ ${rfq.rfqId} received. Analyzing: capability="${rfq.capability}" budget=${rfq.budgetBnb} BNB maxEta=${rfq.maxEtaMinutes}m`,
+  );
+
+  const terms = computeBidTerms(config, rfq);
+
+  let rationale: string;
+  if (isLlmEnabled()) {
+    log(config.agentId, `Drafting bid rationale via LLM...`);
+    try {
+      const systemPrompt =
+        config.persona?.systemPrompt ||
+        `You are ${config.displayName}. Respond in one short sentence as a pragmatic operator.`;
+      const userPrompt = [
+        `RFQ capability: ${rfq.capability}`,
+        `Secondary capabilities: ${rfq.secondaryCapabilities.join(", ") || "(none)"}`,
+        `Objective: ${rfq.objective}`,
+        `Budget: ${rfq.budgetBnb} BNB`,
+        `Max ETA: ${rfq.maxEtaMinutes} minutes`,
+        `My capabilities: ${config.capabilities.join(", ")}`,
+        `My quote: ${terms.quoteBnb} BNB`,
+        `My ETA: ${terms.etaMinutes} minutes`,
+        `Capability match score: ${terms.capabilityFit}%`,
+        "",
+        "Write one concise sentence explaining why you are a strong choice.",
+      ].join("\n");
+      rationale = await llmChat(systemPrompt, userPrompt);
+      if (!rationale) rationale = stubBidRationale(config, rfq, terms);
+    } catch (err) {
+      log(
+        config.agentId,
+        `LLM error while drafting rationale (${String(err)}); using stub.`,
+      );
+      rationale = stubBidRationale(config, rfq, terms);
+    }
+  } else {
+    rationale = stubBidRationale(config, rfq, terms);
+  }
+
+  const bid: BidRecord = {
+    bidId: `bid_${randomUUID()}`,
+    agentId: config.agentId,
+    agentDisplayName: config.displayName,
+    agentAddress: config.wallet.address,
+    erc8004Id: config.erc8004Id,
+    capabilities: config.capabilities,
+    quoteBnb: terms.quoteBnb,
+    etaMinutes: terms.etaMinutes,
+    rationale,
+    submittedAt: nowIso(),
+  };
+
+  log(
+    config.agentId,
+    `Submitting bid: quote=${bid.quoteBnb} BNB eta=${bid.etaMinutes}m`,
+  );
+  log(config.agentId, `Rationale: ${bid.rationale}`);
+  return bid;
+}
+
+// ---------- coordinator: bid selection ----------
+
+async function maybeSelectWinner(
+  config: AgentConfig,
+  rfq: RfqRequestRecord,
+): Promise<{ winnerBidId: string; reasoning: string } | null> {
+  if (rfq.status !== "open") return null;
+  if (rfq.postedByAddress.toLowerCase() !== config.wallet.address.toLowerCase())
+    return null;
+  if (rfq.bids.length < rfq.minBids) {
+    log(
+      config.agentId,
+      `RFQ ${rfq.rfqId}: ${rfq.bids.length}/${rfq.minBids} bids received; waiting...`,
+    );
+    return null;
+  }
+
+  log(
+    config.agentId,
+    `RFQ ${rfq.rfqId}: bid window closed with ${rfq.bids.length} bids. Ranking...`,
+  );
+  for (const bid of rfq.bids) {
+    log(
+      config.agentId,
+      `  bid ${bid.bidId.slice(0, 12)}… from ${bid.agentDisplayName}: ${bid.quoteBnb} BNB / ${bid.etaMinutes}m — ${bid.rationale}`,
+    );
+  }
+
+  if (isLlmEnabled()) {
+    try {
+      const systemPrompt =
+        config.persona?.systemPrompt ||
+        "You are a cautious coordinator. Return strict JSON {winnerBidId, reasoning}.";
+      const userPrompt = [
+        `RFQ objective: ${rfq.objective}`,
+        `Primary capability: ${rfq.capability}`,
+        `Budget: ${rfq.budgetBnb} BNB`,
+        `Max ETA: ${rfq.maxEtaMinutes}m`,
+        "",
+        "Bids:",
+        ...rfq.bids.map((b) =>
+          JSON.stringify({
+            bidId: b.bidId,
+            agentId: b.agentId,
+            quoteBnb: b.quoteBnb,
+            etaMinutes: b.etaMinutes,
+            capabilities: b.capabilities,
+            rationale: b.rationale,
+          }),
+        ),
+        "",
+        'Select the best counterparty. Respond ONLY with strict JSON: {"winnerBidId":"...","reasoning":"one sentence"}.',
+      ].join("\n");
+      log(config.agentId, `Calling LLM to rank bids...`);
+      const raw = await llmChat(systemPrompt, userPrompt);
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]) as {
+          winnerBidId?: string;
+          reasoning?: string;
+        };
+        if (
+          parsed.winnerBidId &&
+          rfq.bids.find((b) => b.bidId === parsed.winnerBidId)
+        ) {
+          return {
+            winnerBidId: parsed.winnerBidId,
+            reasoning: parsed.reasoning || "LLM selection",
+          };
+        }
+      }
+      log(
+        config.agentId,
+        `LLM did not return valid JSON; falling back to score rank.`,
+      );
+    } catch (err) {
+      log(config.agentId, `LLM ranking error: ${String(err)}; falling back.`);
+    }
+  }
+
+  // Deterministic fallback: score = capabilityFit*0.5 - quote*20 - eta*0.3
+  const ranked = [...rfq.bids]
+    .map((b) => {
+      const required = [rfq.capability, ...rfq.secondaryCapabilities].map((c) =>
+        c.toLowerCase(),
+      );
+      const mine = b.capabilities.map((c) => c.toLowerCase());
+      const matches = required.filter((r) => mine.includes(r)).length;
+      const capFit = required.length ? matches / required.length : 1;
+      const score =
+        capFit * 50 -
+        (b.quoteBnb / Math.max(0.01, rfq.budgetBnb)) * 20 -
+        (b.etaMinutes / Math.max(1, rfq.maxEtaMinutes)) * 10;
+      return { bid: b, score };
+    })
+    .sort((a, b) => b.score - a.score);
+  const winner = ranked[0];
+  return {
+    winnerBidId: winner.bid.bidId,
+    reasoning: `Deterministic rank: capability-fit-weighted score ${winner.score.toFixed(2)}, best of ${ranked.length}.`,
+  };
+}
+
+// ---------- approval / release (existing semantics) ----------
+
 function getDeliveryProof(
   agreement: AgreementStateRecord,
 ): DeliveryProof | null {
   const proof = (agreement.meta as { deliveryProof?: unknown } | undefined)
     ?.deliveryProof;
   if (!proof || typeof proof !== "object") return null;
-
   const typed = proof as Partial<DeliveryProof>;
   if (
     typeof typed.submittedBy !== "string" ||
@@ -199,7 +492,6 @@ function getDeliveryProof(
   ) {
     return null;
   }
-
   return {
     submittedBy: typed.submittedBy,
     submittedAt: typed.submittedAt,
@@ -233,7 +525,6 @@ function buildDeliveryProof(
     agreementHash ? `agreementHash:${agreementHash}` : "",
     transcriptHash ? `transcriptHash:${transcriptHash}` : "",
   ].filter(Boolean);
-
   const proofHash = createHash("sha256")
     .update(evidence.join("|"), "utf8")
     .digest("hex");
@@ -250,80 +541,70 @@ async function shouldApproveWithLlm(
   config: AgentConfig,
   agreement: AgreementStateRecord,
 ): Promise<boolean> {
-  if (
-    (process.env.DARK_MATTER_LLM_ENABLED || "false").toLowerCase() !== "true"
-  ) {
+  if (!isLlmEnabled()) return true;
+  try {
+    const systemPrompt =
+      config.persona?.systemPrompt ||
+      `You are ${config.displayName}. Respond with APPROVE or REJECT first, then one short reason.`;
+    const approvalCount = agreement.approvals.length;
+    const deliveryProof = getDeliveryProof(agreement);
+    const userPrompt = [
+      "Decide whether to approve settlement for this escrow agreement.",
+      "Return APPROVE if this looks valid and aligned; otherwise REJECT.",
+      `agentId=${config.agentId}`,
+      `role=${config.role}`,
+      `contractAddress=${agreement.contractAddress}`,
+      `status=${agreement.status}`,
+      `currentApprovals=${approvalCount}`,
+      `hasDeliveryProof=${deliveryProof ? "yes" : "no"}`,
+      `deliveryProofHash=${deliveryProof?.proofHash ?? ""}`,
+    ].join("\n");
+    const content = await llmChat(systemPrompt, userPrompt);
+    return content.trim().toUpperCase().startsWith("APPROVE");
+  } catch (err) {
+    log(config.agentId, `LLM approval error: ${String(err)}; defaulting to approve.`);
     return true;
   }
+}
 
-  const apiKey = process.env.DARK_MATTER_LLM_API_KEY;
-  if (!apiKey) {
-    throw new Error(
-      "DARK_MATTER_LLM_API_KEY is required when DARK_MATTER_LLM_ENABLED=true",
-    );
+// ---------- main agent loop ----------
+
+async function processRfqs(config: AgentConfig): Promise<boolean> {
+  const state = await readState();
+  let changed = false;
+
+  for (const rfq of state.rfqRequests) {
+    if (config.role === "executor") {
+      const bid = await maybeSubmitBid(config, rfq);
+      if (bid) {
+        rfq.bids.push(bid);
+        changed = true;
+      }
+    } else if (config.role === "coordinator") {
+      const selection = await maybeSelectWinner(config, rfq);
+      if (selection) {
+        const winner = rfq.bids.find((b) => b.bidId === selection.winnerBidId);
+        if (winner) {
+          rfq.selection = {
+            winnerBidId: winner.bidId,
+            winnerAgentId: winner.agentId,
+            winnerAddress: winner.agentAddress,
+            reasoning: selection.reasoning,
+            decidedAt: nowIso(),
+          };
+          rfq.status = "selected";
+          changed = true;
+          log(
+            config.agentId,
+            `Selected winner: ${winner.agentDisplayName} (${winner.agentAddress}) — ${selection.reasoning}`,
+          );
+        }
+      }
+    }
   }
 
-  const baseUrl =
-    process.env.DARK_MATTER_LLM_BASE_URL || "https://api.openai.com/v1";
-  const model = process.env.DARK_MATTER_LLM_MODEL || "gpt-4o-mini";
-  const siteUrl = process.env.DARK_MATTER_LLM_SITE_URL;
-  const appName = process.env.DARK_MATTER_LLM_APP_NAME;
-  const systemPrompt =
-    config.persona?.systemPrompt ||
-    `You are ${config.displayName}. You are a cautious settlement agent. Respond with APPROVE or REJECT first, then one short reason.`;
-
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${apiKey}`,
-  };
-  if (siteUrl) {
-    headers["HTTP-Referer"] = siteUrl;
-  }
-  if (appName) {
-    headers["X-OpenRouter-Title"] = appName;
-  }
-
-  const approvalCount = agreement.approvals.length;
-  const deliveryProof = getDeliveryProof(agreement);
-  const userPrompt = [
-    "Decide whether to approve settlement for this escrow agreement.",
-    "Return APPROVE if this looks valid and aligned to the role; otherwise REJECT.",
-    `agentId=${config.agentId}`,
-    `role=${config.role}`,
-    `contractAddress=${agreement.contractAddress}`,
-    `status=${agreement.status}`,
-    `currentApprovals=${approvalCount}`,
-    `hasDeliveryProof=${deliveryProof ? "yes" : "no"}`,
-    `deliveryProofHash=${deliveryProof?.proofHash ?? ""}`,
-  ].join("\n");
-
-  const response = await fetch(
-    `${baseUrl.replace(/\/$/, "")}/chat/completions`,
-    {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        temperature: 0,
-      }),
-    },
-  );
-
-  if (!response.ok) {
-    const errBody = await response.text();
-    throw new Error(`LLM request failed (${response.status}): ${errBody}`);
-  }
-
-  const payload = (await response.json()) as {
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-  const content = payload.choices?.[0]?.message?.content || "";
-  const normalized = content.trim().toUpperCase();
-  return normalized.startsWith("APPROVE");
+  if (changed) await writeState(state);
+  return changed;
 }
 
 async function processAgreements(
@@ -374,7 +655,6 @@ async function processAgreements(
           );
           continue;
         }
-
         log(config.agentId, `Approving ${agreement.contractAddress}`);
         const approval = await approveSettlementViaMcp({
           rpcUrl: config.network.rpcUrl,
@@ -405,7 +685,6 @@ async function processAgreements(
           );
           continue;
         }
-
         log(config.agentId, `Releasing ${agreement.contractAddress}`);
         const release = await releaseViaMcp({
           rpcUrl: config.network.rpcUrl,
@@ -429,9 +708,7 @@ async function processAgreements(
     }
   }
 
-  if (changed) {
-    await writeState(state);
-  }
+  if (changed) await writeState(state);
 }
 
 async function runAgent(configPath: string): Promise<void> {
@@ -443,26 +720,97 @@ async function runAgent(configPath: string): Promise<void> {
     config.agentId,
     `Started role=${config.role} wallet=${config.wallet.address}`,
   );
+  log(
+    config.agentId,
+    `Capabilities: [${config.capabilities.join(", ")}]  LLM=${isLlmEnabled() ? "enabled" : "stub"}`,
+  );
   if (config.persona?.systemPrompt) {
     log(
       config.agentId,
-      `Persona loaded: ${config.persona.systemPrompt.slice(0, 96)}...`,
+      `Persona: ${config.persona.systemPrompt.slice(0, 120)}...`,
     );
   }
   log(config.agentId, `Polling ${getStateFile()} every ${pollMs}ms`);
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    await processAgreements(config, privateKey).catch((error) => {
-      const msg = error instanceof Error ? error.message : String(error);
-      log(config.agentId, `Loop error: ${msg}`);
+    await processRfqs(config).catch((error) => {
+      log(config.agentId, `RFQ loop error: ${String(error)}`);
     });
-
+    await processAgreements(config, privateKey).catch((error) => {
+      log(config.agentId, `Agreement loop error: ${String(error)}`);
+    });
     await new Promise((resolve) => setTimeout(resolve, pollMs));
   }
 }
 
-async function runOrchestrator(): Promise<void> {
+// ---------- orchestrator: post RFQ + deploy escrow once selected ----------
+
+async function postRfq(options: {
+  capability: string;
+  secondaryCapabilities: string[];
+  objective: string;
+  budgetBnb: number;
+  maxEtaMinutes: number;
+  postedByAgentId: string;
+  postedByAddress: string;
+  minBids: number;
+}): Promise<string> {
+  const rfqId = `rfq_${randomUUID()}`;
+  const record: RfqRequestRecord = {
+    rfqId,
+    capability: options.capability,
+    secondaryCapabilities: options.secondaryCapabilities,
+    objective: options.objective,
+    budgetBnb: options.budgetBnb,
+    maxEtaMinutes: options.maxEtaMinutes,
+    postedByAgentId: options.postedByAgentId,
+    postedByAddress: options.postedByAddress,
+    postedAt: nowIso(),
+    minBids: options.minBids,
+    status: "open",
+    bids: [],
+  };
+  const state = await readState();
+  state.rfqRequests.push(record);
+  await writeState(state);
+  return rfqId;
+}
+
+async function waitForSelection(
+  rfqId: string,
+  timeoutMs: number,
+): Promise<RfqRequestRecord> {
+  const started = Date.now();
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const state = await readState();
+    const rfq = state.rfqRequests.find((r) => r.rfqId === rfqId);
+    if (rfq && rfq.status === "selected" && rfq.selection) {
+      return rfq;
+    }
+    if (Date.now() - started > timeoutMs) {
+      throw new Error(
+        `Timed out waiting for Agent A to select winner for RFQ ${rfqId}`,
+      );
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+}
+
+async function markRfqAgreement(
+  rfqId: string,
+  agreementId: string,
+): Promise<void> {
+  const state = await readState();
+  const rfq = state.rfqRequests.find((r) => r.rfqId === rfqId);
+  if (rfq) {
+    rfq.agreementId = agreementId;
+    await writeState(state);
+  }
+}
+
+async function runOrchestrator(args: Map<string, string>): Promise<void> {
   const rpcUrl = process.env.DARK_MATTER_RPC_URL || DEFAULT_RPC_URL;
   const chainId = Number.parseInt(
     process.env.DARK_MATTER_CHAIN_ID || String(DEFAULT_CHAIN_ID),
@@ -477,132 +825,90 @@ async function runOrchestrator(): Promise<void> {
   const agentAAddress =
     process.env.DARK_MATTER_AGENT_A_ADDRESS ||
     "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
-  const agentBAddress =
-    process.env.DARK_MATTER_AGENT_B_ADDRESS ||
-    "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC";
   const transcriptSecret =
     process.env.DARK_MATTER_TRANSCRIPT_SECRET || "dev-dark-matter-secret";
-  const liquidityBnb = Number.parseFloat(
-    process.env.DARK_MATTER_LIQUIDITY_BNB || "0.05",
-  );
   const networkLabel = process.env.DARK_MATTER_NETWORK || "anvil-local";
 
-  const rfqCandidates = parseRfqCandidatesFromEnv(
-    process.env.DARK_MATTER_RFQ_COUNTERPARTIES_JSON,
-    buildDefaultRfqCandidates(agentBAddress),
+  const capability = args.get("capability") || "community-raids";
+  const secondaryRaw = args.get("secondary") || "telegram-ops,discord-ops";
+  const secondaryCapabilities = secondaryRaw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const objective =
+    args.get("objective") ||
+    "Coordinate 24h community raid across Telegram and Discord for launch week.";
+  const budgetBnb = Number.parseFloat(args.get("budget") || "1");
+  const maxEtaMinutes = Number.parseInt(args.get("eta") || "45", 10);
+  const minBids = Number.parseInt(args.get("min-bids") || "2", 10);
+  const rfqTimeoutMs = Number.parseInt(
+    args.get("timeout-ms") || "60000",
+    10,
   );
 
-  // Attempt ERC-8004 registry discovery when BNB MCP is enabled and not
-  // overridden by DARK_MATTER_RFQ_COUNTERPARTIES_JSON.
-  let discoveredCandidates: AgentIdentity[] = [];
-  if (
-    process.env.BNBCHAIN_MCP_ENABLED === "true" &&
-    !process.env.DARK_MATTER_RFQ_COUNTERPARTIES_JSON
-  ) {
-    const mcpNetwork = process.env.BNBCHAIN_MCP_NETWORK || "bsc-testnet";
-    const rfqObjective = "community-raids";
-    log(
-      "orchestrator",
-      `Discovering ERC-8004 agents for capability="${rfqObjective}" on ${mcpNetwork}...`,
-    );
-    try {
-      const discovered = await discoverAgentsByCapability(
-        rfqObjective,
-        mcpNetwork,
-        30,
-      );
-      if (discovered.length > 0) {
-        log(
-          "orchestrator",
-          `Discovered ${discovered.length} on-chain agent(s) from ERC-8004 registry.`,
-        );
-        discoveredCandidates = discovered.map((a, i) => ({
-          id: `registry-agent-${a.agentId}`,
-          displayName: a.metadata.name ?? `Registry Agent #${a.agentId}`,
-          erc8004Id: `erc8004:bnb:${a.agentId}`,
-          capabilities:
-            a.matchedCapabilities.length > 0
-              ? a.matchedCapabilities
-              : ["community-raids"],
-          walletAddress: a.agentWallet ?? a.owner,
-        }));
-      } else {
-        log(
-          "orchestrator",
-          "No ERC-8004 agents matched. Falling back to fixture candidates.",
-        );
-      }
-    } catch (err) {
-      log(
-        "orchestrator",
-        `ERC-8004 discovery error: ${String(err)}. Falling back to fixture candidates.`,
-      );
-    }
-  }
+  log("orchestrator", `User task intent received:`);
+  log("orchestrator", `  capability=${capability}`);
+  log("orchestrator", `  secondary=${secondaryCapabilities.join(", ") || "(none)"}`);
+  log("orchestrator", `  budget=${budgetBnb} BNB  maxEta=${maxEtaMinutes}m`);
+  log("orchestrator", `  objective="${objective}"`);
+  log("orchestrator", `Posting RFQ on behalf of Agent A (${agentAAddress})...`);
 
-  // Use discovered candidates if available, otherwise use fixture/env candidates.
-  const effectiveCandidatePool =
-    discoveredCandidates.length > 0 ? discoveredCandidates : rfqCandidates;
-
-  const strictWalletMatch =
-    (process.env.DARK_MATTER_RFQ_STRICT_AGENT_B || "true").toLowerCase() !==
-    "false";
-  const eligibleCandidates = strictWalletMatch
-    ? effectiveCandidatePool.filter(
-        (candidate) =>
-          !candidate.walletAddress ||
-          candidate.walletAddress.toLowerCase() === agentBAddress.toLowerCase(),
-      )
-    : effectiveCandidatePool;
-  const effectiveCandidates =
-    eligibleCandidates.length > 0
-      ? eligibleCandidates
-      : buildDefaultRfqCandidates(agentBAddress).filter(
-          (candidate) => candidate.id === "agent-b",
-        );
-
-  const rfq = runRfqSelection({
-    objective:
-      "Select counterparty for coordinated liquidity and growth operations",
-    requiredCapabilities: ["community-raids", "telegram-ops"],
-    maxQuoteBnb: liquidityBnb * 2,
-    maxEtaMinutes: 60,
-    candidates: effectiveCandidates,
+  const rfqId = await postRfq({
+    capability,
+    secondaryCapabilities,
+    objective,
+    budgetBnb,
+    maxEtaMinutes,
+    postedByAgentId: "agent-a",
+    postedByAddress: agentAAddress,
+    minBids,
   });
-
+  log("orchestrator", `RFQ posted: ${rfqId}`);
   log(
     "orchestrator",
-    `RFQ selected ${rfq.selected.candidate.displayName} score=${rfq.selected.score} quote=${rfq.selected.quoteBnb} eta=${rfq.selected.etaMinutes}m`,
+    `Waiting for Agent A to select a winner (min ${minBids} bids, timeout ${rfqTimeoutMs}ms)...`,
   );
-  if (rfq.fallback) {
-    log(
-      "orchestrator",
-      `RFQ fallback ${rfq.fallback.candidate.displayName} score=${rfq.fallback.score}`,
-    );
-  }
 
-  const selectedCounterparty = rfq.selected.candidate;
-  const selectedCounterpartyAddress =
-    selectedCounterparty.walletAddress || agentBAddress;
+  const rfq = await waitForSelection(rfqId, rfqTimeoutMs);
+  const selection = rfq.selection!;
+  const winnerBid = rfq.bids.find((b) => b.bidId === selection.winnerBidId)!;
+  log(
+    "orchestrator",
+    `Agent A selected ${winnerBid.agentDisplayName} (${winnerBid.agentAddress}).`,
+  );
+  log("orchestrator", `Rationale: ${selection.reasoning}`);
+  log(
+    "orchestrator",
+    `Negotiating terms: liquidity=${winnerBid.quoteBnb} BNB eta=${winnerBid.etaMinutes}m`,
+  );
+
+  const proposer: AgentIdentity = {
+    id: "agent-a",
+    displayName: "Agent A",
+    erc8004Id: "erc8004:bnb:agent-a-001",
+    capabilities: ["liquidity-provision"],
+    walletAddress: agentAAddress,
+  };
+  const counterparty: AgentIdentity = {
+    id: winnerBid.agentId,
+    displayName: winnerBid.agentDisplayName,
+    erc8004Id: winnerBid.erc8004Id,
+    capabilities: winnerBid.capabilities,
+    walletAddress: winnerBid.agentAddress,
+  };
 
   const offer = {
-    proposer: {
-      id: "agent-a",
-      displayName: "Agent A",
-      erc8004Id: "erc8004:bnb:agent-a-001",
-      capabilities: ["liquidity-provision"],
-    },
-    counterparty: selectedCounterparty,
-    objective:
-      "Launch coordinated liquidity and growth JV without exposing terms publicly before execution.",
+    proposer,
+    counterparty,
+    objective: rfq.objective,
     secrecyLevel: "private" as const,
     terms: {
-      liquidityBnb,
-      raidCoverageHours: 24,
+      liquidityBnb: winnerBid.quoteBnb,
+      raidCoverageHours: Math.max(1, Math.ceil(rfq.maxEtaMinutes / 60)),
       revenueShareBpsAgentA: 6000,
       revenueShareBpsAgentB: 4000,
       treasuryAddress: DEFAULT_TREASURY,
-      notes: "Agent runtime orchestrated agreement",
+      notes: `Awarded via RFQ ${rfq.rfqId}`,
     },
   };
 
@@ -610,12 +916,7 @@ async function runOrchestrator(): Promise<void> {
   if (!negotiated.accepted || !negotiated.agreementId) {
     throw new Error(negotiated.rejectionReason || "Negotiation rejected");
   }
-
-  log("orchestrator", `Accepted agreementId=${negotiated.agreementId}`);
-  log(
-    "orchestrator",
-    `Counterparty selected=${selectedCounterparty.displayName} wallet=${selectedCounterpartyAddress}`,
-  );
+  log("orchestrator", `Negotiation accepted: agreementId=${negotiated.agreementId}`);
 
   const transcript = await storeEncryptedTranscript({
     agreementId: negotiated.agreementId,
@@ -623,9 +924,10 @@ async function runOrchestrator(): Promise<void> {
     secret: transcriptSecret,
   });
 
+  log("orchestrator", `Deploying escrow contract on ${networkLabel}...`);
   const agreement = await createAgreementViaMcp({
     agreementId: negotiated.agreementId,
-    participants: [offer.proposer, offer.counterparty],
+    participants: [proposer, counterparty],
     terms: offer.terms,
     network: networkLabel,
     dryRun: false,
@@ -635,7 +937,7 @@ async function runOrchestrator(): Promise<void> {
       rpcUrl,
       privateKey: deployerKey,
       agentAAddress,
-      agentBAddress: selectedCounterpartyAddress,
+      agentBAddress: winnerBid.agentAddress,
       valueWei: parseEther(String(offer.terms.liquidityBnb)).toString(),
       chainId,
     },
@@ -646,7 +948,7 @@ async function runOrchestrator(): Promise<void> {
     agreementId: negotiated.agreementId,
     contractAddress: String(agreement.contractAddress || ""),
     agentA: agentAAddress,
-    agentB: selectedCounterpartyAddress,
+    agentB: winnerBid.agentAddress,
     status: "deployed",
     approvals: [],
     approveTxHashes: {},
@@ -655,37 +957,31 @@ async function runOrchestrator(): Promise<void> {
     meta: {
       agreementHash: agreement.agreementHash,
       transcriptHash: transcript.transcriptHash,
-      rfq: {
-        selected: {
-          id: rfq.selected.candidate.id,
-          displayName: rfq.selected.candidate.displayName,
-          score: rfq.selected.score,
-          quoteBnb: rfq.selected.quoteBnb,
-          etaMinutes: rfq.selected.etaMinutes,
-        },
-        fallback: rfq.fallback
-          ? {
-              id: rfq.fallback.candidate.id,
-              displayName: rfq.fallback.candidate.displayName,
-              score: rfq.fallback.score,
-            }
-          : null,
-        bids: rfq.bids.map((bid) => ({
-          id: bid.candidate.id,
-          displayName: bid.candidate.displayName,
-          score: bid.score,
-          quoteBnb: bid.quoteBnb,
-          etaMinutes: bid.etaMinutes,
-          reliability: bid.reliability,
-          capabilityFit: bid.capabilityFit,
-        })),
+      rfqId: rfq.rfqId,
+      winner: {
+        agentId: winnerBid.agentId,
+        displayName: winnerBid.agentDisplayName,
+        reasoning: selection.reasoning,
+        quoteBnb: winnerBid.quoteBnb,
+        etaMinutes: winnerBid.etaMinutes,
       },
+      bids: rfq.bids.map((b) => ({
+        agentId: b.agentId,
+        quoteBnb: b.quoteBnb,
+        etaMinutes: b.etaMinutes,
+        rationale: b.rationale,
+      })),
     },
   });
   await writeState(state);
+  await markRfqAgreement(rfq.rfqId, negotiated.agreementId);
 
-  log("orchestrator", `Deployed contract=${agreement.contractAddress}`);
-  log("orchestrator", `Registered in state file=${getStateFile()}`);
+  log("orchestrator", `Escrow deployed at ${agreement.contractAddress}`);
+  log("orchestrator", `Handing off to Agent A and ${winnerBid.agentDisplayName} for approval + release.`);
+  log(
+    "orchestrator",
+    `Monitor state file ${getStateFile()} or watch the agent terminals for DEMO COMPLETE.`,
+  );
 }
 
 async function main(): Promise<void> {
@@ -701,13 +997,13 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (mode === "orchestrate") {
-    await runOrchestrator();
+  if (mode === "orchestrate" || mode === "post-task") {
+    await runOrchestrator(args);
     return;
   }
 
   throw new Error(
-    "Usage: node dist/cli.js <agent|orchestrate> [--config <path>]",
+    "Usage: node dist/cli.js <agent|orchestrate|post-task> [--config <path>] [--capability X] [--budget N] [--eta N] [--min-bids N]",
   );
 }
 
