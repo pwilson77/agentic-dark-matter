@@ -4,15 +4,24 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import { Contract, NonceManager, JsonRpcProvider, Wallet, parseEther } from "ethers";
+import {
+  Contract,
+  NonceManager,
+  JsonRpcProvider,
+  Wallet,
+  parseEther,
+} from "ethers";
 import {
   approveSettlementViaMcp,
+  createNegotiationEnvelope,
   createAgreementViaMcp,
+  relayNegotiationEnvelopesToDgrid,
   negotiateJointVenture,
   releaseViaMcp,
   storeEncryptedTranscript,
+  verifyNegotiationEnvelope,
 } from "@adm/shared-core";
-import type { AgentIdentity } from "@adm/shared-core";
+import type { AgentIdentity, NegotiationEnvelope } from "@adm/shared-core";
 
 type AgentRole = "coordinator" | "executor";
 
@@ -111,7 +120,9 @@ const DEFAULT_STATE_FILE = "/tmp/adm-agent-state.json";
 const DEFAULT_RPC_URL = "http://127.0.0.1:8545";
 const DEFAULT_CHAIN_ID = 31337;
 const DEFAULT_TREASURY = "0x1111222233334444555566667777888899990000";
-const ESCROW_PROOF_ABI = ["function submitDeliveryProof(bytes32 proofHash)"] as const;
+const ESCROW_PROOF_ABI = [
+  "function submitDeliveryProof(bytes32 proofHash)",
+] as const;
 const BSC_TESTNET_FALLBACK_RPCS = [
   "https://bsc-testnet-dataseed.bnbchain.org",
   "https://bsc-testnet.bnbchain.org",
@@ -197,6 +208,87 @@ function getPrivateKeyFromEnv(config: AgentConfig): string {
     );
   }
   return value;
+}
+
+function getSignerKeyForAgent(agentId: string): string | null {
+  if (agentId === "agent-a") {
+    return process.env.DARK_MATTER_AGENT_A_PRIVATE_KEY || null;
+  }
+  if (agentId === "agent-b") {
+    return process.env.DARK_MATTER_AGENT_B_PRIVATE_KEY || null;
+  }
+  if (agentId === "agent-c") {
+    return process.env.DARK_MATTER_AGENT_C_PRIVATE_KEY || null;
+  }
+  return null;
+}
+
+function collectNegotiationNonces(state: RuntimeState): Set<string> {
+  const seen = new Set<string>();
+  for (const agreement of state.agreements) {
+    const envelopes = (agreement.meta as { negotiationEnvelopes?: unknown[] } | undefined)
+      ?.negotiationEnvelopes;
+    if (!Array.isArray(envelopes)) continue;
+    for (const entry of envelopes) {
+      if (!entry || typeof entry !== "object") continue;
+      const nonce = (entry as { payload?: { nonce?: string } }).payload?.nonce;
+      if (typeof nonce === "string" && nonce.length > 0) {
+        seen.add(nonce);
+      }
+    }
+  }
+  return seen;
+}
+
+function validateNegotiationEnvelopes(input: {
+  envelopes: NegotiationEnvelope[];
+  expectedAgreementId: string;
+  expectedSignerAgentIds: string[];
+  usedNonces: Set<string>;
+  strict: boolean;
+}): void {
+  const { envelopes, expectedAgreementId, expectedSignerAgentIds, usedNonces, strict } = input;
+  if (envelopes.length === 0) {
+    throw new Error("Negotiation envelope policy failed: no envelopes were created.");
+  }
+
+  const uniqueSignerIds = new Set<string>();
+  const uniqueNonces = new Set<string>();
+  for (const envelope of envelopes) {
+    if (!verifyNegotiationEnvelope(envelope)) {
+      throw new Error(
+        `Negotiation envelope policy failed: invalid signature for ${envelope.signerAgentId}.`,
+      );
+    }
+    if (envelope.payload.agreementId !== expectedAgreementId) {
+      throw new Error(
+        `Negotiation envelope policy failed: agreementId mismatch for ${envelope.signerAgentId}.`,
+      );
+    }
+    const nonce = envelope.payload.nonce;
+    if (usedNonces.has(nonce)) {
+      throw new Error(
+        `Negotiation envelope policy failed: replayed nonce detected (${nonce}).`,
+      );
+    }
+    if (uniqueNonces.has(nonce)) {
+      throw new Error(
+        `Negotiation envelope policy failed: duplicate nonce within envelope set (${nonce}).`,
+      );
+    }
+    uniqueNonces.add(nonce);
+    uniqueSignerIds.add(envelope.signerAgentId);
+  }
+
+  if (strict) {
+    for (const signerId of expectedSignerAgentIds) {
+      if (!uniqueSignerIds.has(signerId)) {
+        throw new Error(
+          `Negotiation envelope policy failed: missing required signer envelope (${signerId}).`,
+        );
+      }
+    }
+  }
 }
 
 // ---------- LLM helpers ----------
@@ -569,7 +661,9 @@ function buildDeliveryProof(
 function toBytes32Hex(hexNoPrefix: string): string {
   const normalized = hexNoPrefix.trim().toLowerCase().replace(/^0x/, "");
   if (!/^[a-f0-9]{64}$/.test(normalized)) {
-    throw new Error(`Invalid proof hash for bytes32 conversion: ${hexNoPrefix}`);
+    throw new Error(
+      `Invalid proof hash for bytes32 conversion: ${hexNoPrefix}`,
+    );
   }
   return `0x${normalized}`;
 }
@@ -1131,6 +1225,8 @@ async function runOrchestrator(args: Map<string, string>): Promise<void> {
   );
 
   const rfq = await waitForSelection(rfqId, rfqTimeoutMs);
+  const stateBeforeAgreement = await readState();
+  const usedNegotiationNonces = collectNegotiationNonces(stateBeforeAgreement);
   const selection = rfq.selection!;
   const winnerBid = rfq.bids.find((b) => b.bidId === selection.winnerBidId)!;
   log(
@@ -1177,6 +1273,109 @@ async function runOrchestrator(args: Map<string, string>): Promise<void> {
   if (!negotiated.accepted || !negotiated.agreementId) {
     throw new Error(negotiated.rejectionReason || "Negotiation rejected");
   }
+
+  const negotiationEnvelopeObjects: NegotiationEnvelope[] = [];
+  const negotiationStrict =
+    (process.env.DARK_MATTER_NEGOTIATION_STRICT || "true").toLowerCase() ===
+    "true";
+  const agentASignerKey = getSignerKeyForAgent("agent-a") || deployerKey;
+  const agentAEnvelope = await createNegotiationEnvelope({
+    signerAgentId: "agent-a",
+    signerPrivateKey: agentASignerKey,
+    agreementId: negotiated.agreementId,
+    objective: rfq.objective,
+    participants: [agentAAddress, winnerBid.agentAddress],
+    secrecyLevel: "private",
+    terms: offer.terms,
+  });
+  negotiationEnvelopeObjects.push(agentAEnvelope);
+
+  const winnerSignerKey = getSignerKeyForAgent(winnerBid.agentId);
+  if (winnerSignerKey) {
+    const counterpartyEnvelope = await createNegotiationEnvelope({
+      signerAgentId: winnerBid.agentId,
+      signerPrivateKey: winnerSignerKey,
+      agreementId: negotiated.agreementId,
+      objective: rfq.objective,
+      participants: [agentAAddress, winnerBid.agentAddress],
+      secrecyLevel: "private",
+      terms: offer.terms,
+    });
+    negotiationEnvelopeObjects.push(counterpartyEnvelope);
+  } else {
+    log(
+      "orchestrator",
+      `No signer key found for ${winnerBid.agentId}; storing single-sided negotiation envelope only.`,
+    );
+  }
+
+  validateNegotiationEnvelopes({
+    envelopes: negotiationEnvelopeObjects,
+    expectedAgreementId: negotiated.agreementId,
+    expectedSignerAgentIds: ["agent-a", winnerBid.agentId],
+    usedNonces: usedNegotiationNonces,
+    strict: negotiationStrict,
+  });
+  const negotiationEnvelopes: Array<Record<string, unknown>> =
+    negotiationEnvelopeObjects.map((envelope) => ({
+      ...envelope,
+      verified: true,
+    }));
+
+  const dgridEnabled =
+    (process.env.DARK_MATTER_DGRID_ENABLED || "false").toLowerCase() ===
+    "true";
+  const dgridStrict =
+    (process.env.DARK_MATTER_DGRID_STRICT || "false").toLowerCase() ===
+    "true";
+  const dgridEndpoint = process.env.DARK_MATTER_DGRID_ENDPOINT || "";
+  const dgridTopic =
+    process.env.DARK_MATTER_DGRID_TOPIC || "agentic-dark-matter.negotiation";
+
+  let dgridRelayMeta: Record<string, unknown> | undefined;
+  if (dgridEnabled) {
+    try {
+      if (!dgridEndpoint) {
+        throw new Error(
+          "DGRID enabled but DARK_MATTER_DGRID_ENDPOINT is missing.",
+        );
+      }
+      const relay = await relayNegotiationEnvelopesToDgrid({
+        endpoint: dgridEndpoint,
+        topic: dgridTopic,
+        envelopes: negotiationEnvelopeObjects,
+        apiKey: process.env.DARK_MATTER_DGRID_API_KEY,
+        timeoutMs: Number.parseInt(
+          process.env.DARK_MATTER_DGRID_TIMEOUT_MS || "8000",
+          10,
+        ),
+      });
+      dgridRelayMeta = relay as unknown as Record<string, unknown>;
+      log(
+        "orchestrator",
+        `DGrid relay: published=${relay.published} failed=${relay.failed} topic=${relay.topic}`,
+      );
+      if (dgridStrict && relay.failed > 0) {
+        throw new Error(
+          `DGrid strict mode failed: ${relay.failed} envelope(s) were not relayed.`,
+        );
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (dgridStrict) {
+        throw new Error(`DGrid relay policy failed: ${msg}`);
+      }
+      dgridRelayMeta = {
+        endpoint: dgridEndpoint,
+        topic: dgridTopic,
+        published: 0,
+        failed: negotiationEnvelopeObjects.length,
+        error: msg,
+      };
+      log("orchestrator", `DGrid relay warning: ${msg}`);
+    }
+  }
+
   log(
     "orchestrator",
     `Negotiation accepted: agreementId=${negotiated.agreementId}`,
@@ -1242,6 +1441,8 @@ async function runOrchestrator(args: Map<string, string>): Promise<void> {
         etaMinutes: b.etaMinutes,
         rationale: b.rationale,
       })),
+      negotiationEnvelopes,
+      dgridRelay: dgridRelayMeta,
     },
   });
   await writeState(state);

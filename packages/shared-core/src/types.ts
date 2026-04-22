@@ -60,6 +60,25 @@ export interface NegotiationTranscriptEntry {
   at: string;
 }
 
+export interface NegotiationEnvelopePayload {
+  agreementId: string;
+  objective: string;
+  participants: [string, string];
+  secrecyLevel: "private" | "sealed";
+  termsHash: string;
+  nonce: string;
+  createdAt: string;
+}
+
+export interface NegotiationEnvelope {
+  envelopeId: string;
+  signerAgentId: string;
+  signerAddress: string;
+  payload: NegotiationEnvelopePayload;
+  payloadHash: string;
+  signature: string;
+}
+
 export type ExecutionPhase =
   | "preflight"
   | "discovery"

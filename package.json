@@ -37,6 +37,8 @@
     "demo:up:testnet": "npm --workspace @adm/shared-core run build && npm --workspace @adm/agent-runtime run build && node ./scripts/demo-up.mjs testnet",
     "demo:chat": "node ./scripts/demo-chat.mjs",
     "demo:chat:testnet": "node ./scripts/demo-chat.mjs testnet",
+    "dgrid:mock": "node ./scripts/dgrid-mock-relay.mjs",
+    "demo:up:dgrid": "npm --workspace @adm/shared-core run build && npm --workspace @adm/agent-runtime run build && DARK_MATTER_DGRID_ENABLED=true DARK_MATTER_DGRID_ENDPOINT=http://localhost:7400/relay DARK_MATTER_DGRID_TOPIC=agentic-dark-matter.negotiation node ./scripts/demo-up.mjs",
     "ui:dev:testnet:state": "sh -c 'rm -rf ./apps/dark-matter-ui/.next && set -a && . ./.env.testnet && set +a && DARK_MATTER_LOCAL_SOURCE=state POOL_SOURCE=local AGENT_STATE_FILE=/tmp/adm-agent-state.json AGENT_LOG_FILE=/tmp/adm-agent-logs.jsonl npm --workspace @adm/dark-matter-ui run dev'",
     "testnet:fund": "node ./scripts/fund-testnet-agents.mjs --env .env.testnet",
     "testnet:fund:send": "node ./scripts/fund-testnet-agents.mjs --env .env.testnet --send",

@@ -825,6 +825,21 @@ interface RuntimeStateAgreement {
       proofHash?: string;
       submittedAt?: string;
     };
+    negotiationEnvelopes?: Array<{
+      envelopeId?: string;
+      signerAgentId?: string;
+      verified?: boolean;
+      payload?: {
+        nonce?: string;
+      };
+    }>;
+    dgridRelay?: {
+      endpoint?: string;
+      topic?: string;
+      published?: number;
+      failed?: number;
+      error?: string;
+    };
     // legacy shape — kept for backward compat with old fixtures
     rfq?: {
       selected?: {
@@ -1245,6 +1260,30 @@ async function loadLocalPoolsFromStateFile(): Promise<PoolItem[]> {
           title: "Escrow released",
           detail: `release tx ${releaseTxHash.slice(0, 14)}…`,
           status: "ok",
+        });
+      }
+
+      const dgridRelay = agreement.meta?.dgridRelay as
+        | {
+            endpoint?: string;
+            topic?: string;
+            published?: number;
+            failed?: number;
+            error?: string;
+          }
+        | undefined;
+      if (dgridRelay) {
+        const failed = Number(dgridRelay.failed || 0);
+        const published = Number(dgridRelay.published || 0);
+        const endpointLabel = dgridRelay.endpoint || "dgrid-endpoint";
+        timeline.push({
+          id: `${shortId}-dgrid-relay`,
+          at: agreement.createdAt || "recent",
+          title: "DGrid relay",
+          detail: dgridRelay.error
+            ? `Relay error: ${dgridRelay.error}`
+            : `Published ${published} envelope(s), failed ${failed} · ${endpointLabel}`,
+          status: failed > 0 || dgridRelay.error ? "warn" : "ok",
         });
       }
 
