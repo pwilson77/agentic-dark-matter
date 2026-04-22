@@ -100,6 +100,7 @@ async function run() {
     createInput: makeCreateInput(),
     agentAPrivateKey: AGENT_A_PRIVATE_KEY,
     agentBPrivateKey: AGENT_B_PRIVATE_KEY,
+    deliveryProofHash: `0x${"cd".repeat(32)}`,
   });
 
   const contractAddress = String(lifecycle.agreement.contractAddress || "");
@@ -110,6 +111,10 @@ async function run() {
   assertCondition(
     !!lifecycle.approveA.txHash && !!lifecycle.approveB.txHash,
     "SDK approvals missing tx hashes",
+  );
+  assertCondition(
+    !!lifecycle.submitProof.txHash,
+    "SDK submitDeliveryProof missing tx hash",
   );
   assertCondition(!!lifecycle.release.txHash, "SDK release missing tx hash");
 
@@ -132,6 +137,7 @@ async function run() {
       {
         contractAddress,
         approveATx: lifecycle.approveA.txHash,
+        submitProofTx: lifecycle.submitProof.txHash,
         approveBTx: lifecycle.approveB.txHash,
         releaseTx: lifecycle.release.txHash,
       },

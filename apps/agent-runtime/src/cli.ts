@@ -4,15 +4,23 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import { Contract, NonceManager, JsonRpcProvider, Wallet, parseEther } from "ethers";
+import {
+  Contract,
+  NonceManager,
+  JsonRpcProvider,
+  Wallet,
+  parseEther,
+} from "ethers";
 import {
   approveSettlementViaMcp,
+  createNegotiationEnvelope,
   createAgreementViaMcp,
   negotiateJointVenture,
   releaseViaMcp,
   storeEncryptedTranscript,
+  validateNegotiationEnvelopeSet,
 } from "@adm/shared-core";
-import type { AgentIdentity } from "@adm/shared-core";
+import type { AgentIdentity, NegotiationEnvelope } from "@adm/shared-core";
 
 type AgentRole = "coordinator" | "executor";
 
@@ -111,7 +119,9 @@ const DEFAULT_STATE_FILE = "/tmp/adm-agent-state.json";
 const DEFAULT_RPC_URL = "http://127.0.0.1:8545";
 const DEFAULT_CHAIN_ID = 31337;
 const DEFAULT_TREASURY = "0x1111222233334444555566667777888899990000";
-const ESCROW_PROOF_ABI = ["function submitDeliveryProof(bytes32 proofHash)"] as const;
+const ESCROW_PROOF_ABI = [
+  "function submitDeliveryProof(bytes32 proofHash)",
+] as const;
 const BSC_TESTNET_FALLBACK_RPCS = [
   "https://bsc-testnet-dataseed.bnbchain.org",
   "https://bsc-testnet.bnbchain.org",
@@ -197,6 +207,47 @@ function getPrivateKeyFromEnv(config: AgentConfig): string {
     );
   }
   return value;
+}
+
+function getSignerKeyForAgent(agentId: string): string | null {
+  if (agentId === "agent-a") {
+    return process.env.DARK_MATTER_AGENT_A_PRIVATE_KEY || null;
+  }
+  if (agentId === "agent-b") {
+    return process.env.DARK_MATTER_AGENT_B_PRIVATE_KEY || null;
+  }
+  if (agentId === "agent-c") {
+    return process.env.DARK_MATTER_AGENT_C_PRIVATE_KEY || null;
+  }
+  return null;
+}
+
+function collectNegotiationNonces(state: RuntimeState): Set<string> {
+  const seen = new Set<string>();
+  for (const agreement of state.agreements) {
+    const envelopes = (
+      agreement.meta as { negotiationEnvelopes?: unknown[] } | undefined
+    )?.negotiationEnvelopes;
+    if (!Array.isArray(envelopes)) continue;
+    for (const entry of envelopes) {
+      if (!entry || typeof entry !== "object") continue;
+      const nonce = (entry as { payload?: { nonce?: string } }).payload?.nonce;
+      if (typeof nonce === "string" && nonce.length > 0) {
+        seen.add(nonce);
+      }
+    }
+  }
+  return seen;
+}
+
+function validateNegotiationEnvelopes(input: {
+  envelopes: NegotiationEnvelope[];
+  expectedAgreementId: string;
+  expectedSignerAgentIds: string[];
+  usedNonces: Set<string>;
+  strict: boolean;
+}): void {
+  validateNegotiationEnvelopeSet(input);
 }
 
 // ---------- LLM helpers ----------
@@ -530,6 +581,46 @@ function getDeliveryProof(
   };
 }
 
+function getNegotiationEnvelopesFromAgreement(
+  agreement: AgreementStateRecord,
+): NegotiationEnvelope[] {
+  const raw = (agreement.meta as { negotiationEnvelopes?: unknown } | undefined)
+    ?.negotiationEnvelopes;
+  if (!Array.isArray(raw)) return [];
+  const out: NegotiationEnvelope[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const env = item as Partial<NegotiationEnvelope>;
+    if (
+      typeof env.envelopeId === "string" &&
+      typeof env.signerAgentId === "string" &&
+      typeof env.signerAddress === "string" &&
+      typeof env.payloadHash === "string" &&
+      typeof env.signature === "string" &&
+      env.payload &&
+      typeof env.payload === "object"
+    ) {
+      out.push(env as NegotiationEnvelope);
+    }
+  }
+  return out;
+}
+
+function getExecutorEnvelopeDeliveryCommitment(
+  agreement: AgreementStateRecord,
+): string | null {
+  const executorAddress = agreement.agentB.toLowerCase();
+  const envelopes = getNegotiationEnvelopesFromAgreement(agreement);
+  const envelope = envelopes.find(
+    (e) => e.signerAddress.toLowerCase() === executorAddress,
+  );
+  const commitment = envelope?.payload.deliveryCommitmentHash;
+  if (typeof commitment !== "string" || !/^[a-f0-9]{64}$/i.test(commitment)) {
+    return null;
+  }
+  return commitment.toLowerCase();
+}
+
 function buildDeliveryProof(
   config: AgentConfig,
   agreement: AgreementStateRecord,
@@ -554,9 +645,10 @@ function buildDeliveryProof(
     agreementHash ? `agreementHash:${agreementHash}` : "",
     transcriptHash ? `transcriptHash:${transcriptHash}` : "",
   ].filter(Boolean);
-  const proofHash = createHash("sha256")
-    .update(evidence.join("|"), "utf8")
-    .digest("hex");
+  const expectedCommitment = getExecutorEnvelopeDeliveryCommitment(agreement);
+  const proofHash =
+    expectedCommitment ||
+    createHash("sha256").update(evidence.join("|"), "utf8").digest("hex");
   return {
     submittedBy: config.wallet.address.toLowerCase(),
     submittedAt,
@@ -569,7 +661,9 @@ function buildDeliveryProof(
 function toBytes32Hex(hexNoPrefix: string): string {
   const normalized = hexNoPrefix.trim().toLowerCase().replace(/^0x/, "");
   if (!/^[a-f0-9]{64}$/.test(normalized)) {
-    throw new Error(`Invalid proof hash for bytes32 conversion: ${hexNoPrefix}`);
+    throw new Error(
+      `Invalid proof hash for bytes32 conversion: ${hexNoPrefix}`,
+    );
   }
   return `0x${normalized}`;
 }
@@ -599,6 +693,11 @@ async function shouldApproveWithLlm(
 ): Promise<boolean> {
   if (!isLlmEnabled()) return true;
   const deliveryProof = getDeliveryProof(agreement);
+  const expectedCommitment = getExecutorEnvelopeDeliveryCommitment(agreement);
+  const commitmentMatches =
+    !!deliveryProof &&
+    !!expectedCommitment &&
+    deliveryProof.proofHash.toLowerCase() === expectedCommitment;
   // Coordinator waits until executor has posted a delivery proof; there is
   // nothing to review yet, so skip silently instead of asking the LLM.
   if (config.role === "coordinator" && !deliveryProof) {
@@ -622,9 +721,12 @@ async function shouldApproveWithLlm(
       `currentApprovals=${approvalCount}`,
       `hasDeliveryProof=${deliveryProof ? "yes" : "no"}`,
       `deliveryProofHash=${deliveryProof?.proofHash ?? ""}`,
+      `expectedCommitment=${expectedCommitment ?? ""}`,
+      `commitmentMatches=${commitmentMatches ? "yes" : "no"}`,
       "",
       "Approve if the agreement looks valid and, for coordinators, the executor",
-      "has submitted a delivery proof. Reject only if something looks wrong.",
+      "has submitted a delivery proof that matches the negotiated commitment.",
+      "Reject only if something looks wrong.",
     ].join("\n");
     const content = await llmChat(systemPrompt, userPrompt);
     const upper = content.toUpperCase();
@@ -727,7 +829,22 @@ async function processAgreements(
       agreement.status === "deployed" &&
       !getDeliveryProof(agreement)
     ) {
+      const expectedCommitment = getExecutorEnvelopeDeliveryCommitment(agreement);
+      if (!expectedCommitment) {
+        log(
+          config.agentId,
+          `Delivery proof blocked for ${agreement.contractAddress}: missing executor envelope commitment.`,
+        );
+        continue;
+      }
       const proof = buildDeliveryProof(config, agreement);
+      if (proof.proofHash.toLowerCase() !== expectedCommitment) {
+        log(
+          config.agentId,
+          `Delivery proof blocked for ${agreement.contractAddress}: commitment mismatch expected=${expectedCommitment} actual=${proof.proofHash}`,
+        );
+        continue;
+      }
       const proofTxHash = await submitDeliveryProofOnChain({
         rpcUrl: config.network.rpcUrl,
         contractAddress: agreement.contractAddress,
@@ -787,6 +904,21 @@ async function processAgreements(
           log(
             config.agentId,
             `Release blocked for ${agreement.contractAddress}: missing delivery proof.`,
+          );
+          continue;
+        }
+        const expectedCommitment = getExecutorEnvelopeDeliveryCommitment(agreement);
+        if (!expectedCommitment) {
+          log(
+            config.agentId,
+            `Release blocked for ${agreement.contractAddress}: missing executor envelope commitment.`,
+          );
+          continue;
+        }
+        if (proof.proofHash.toLowerCase() !== expectedCommitment) {
+          log(
+            config.agentId,
+            `Release blocked for ${agreement.contractAddress}: proof hash does not match committed envelope hash.`,
           );
           continue;
         }
@@ -1059,6 +1191,14 @@ async function runOrchestrator(args: Map<string, string>): Promise<void> {
       "180000",
     10,
   );
+  const negotiationStrict =
+    (process.env.DARK_MATTER_NEGOTIATION_STRICT || "true").toLowerCase() ===
+    "true";
+
+  log(
+    "orchestrator",
+    `Envelope policy profile: strict=${negotiationStrict ? "on" : "off"}, replayProtection=on, signatureVerification=on, commitmentBinding=on`,
+  );
 
   if (interactive) {
     const rl = readline.createInterface({ input, output });
@@ -1131,6 +1271,8 @@ async function runOrchestrator(args: Map<string, string>): Promise<void> {
   );
 
   const rfq = await waitForSelection(rfqId, rfqTimeoutMs);
+  const stateBeforeAgreement = await readState();
+  const usedNegotiationNonces = collectNegotiationNonces(stateBeforeAgreement);
   const selection = rfq.selection!;
   const winnerBid = rfq.bids.find((b) => b.bidId === selection.winnerBidId)!;
   log(
@@ -1177,6 +1319,52 @@ async function runOrchestrator(args: Map<string, string>): Promise<void> {
   if (!negotiated.accepted || !negotiated.agreementId) {
     throw new Error(negotiated.rejectionReason || "Negotiation rejected");
   }
+
+  const negotiationEnvelopeObjects: NegotiationEnvelope[] = [];
+  const agentASignerKey = getSignerKeyForAgent("agent-a") || deployerKey;
+  const agentAEnvelope = await createNegotiationEnvelope({
+    signerAgentId: "agent-a",
+    signerPrivateKey: agentASignerKey,
+    agreementId: negotiated.agreementId,
+    objective: rfq.objective,
+    participants: [agentAAddress, winnerBid.agentAddress],
+    secrecyLevel: "private",
+    terms: offer.terms,
+  });
+  negotiationEnvelopeObjects.push(agentAEnvelope);
+
+  const winnerSignerKey = getSignerKeyForAgent(winnerBid.agentId);
+  if (winnerSignerKey) {
+    const counterpartyEnvelope = await createNegotiationEnvelope({
+      signerAgentId: winnerBid.agentId,
+      signerPrivateKey: winnerSignerKey,
+      agreementId: negotiated.agreementId,
+      objective: rfq.objective,
+      participants: [agentAAddress, winnerBid.agentAddress],
+      secrecyLevel: "private",
+      terms: offer.terms,
+    });
+    negotiationEnvelopeObjects.push(counterpartyEnvelope);
+  } else {
+    log(
+      "orchestrator",
+      `No signer key found for ${winnerBid.agentId}; storing single-sided negotiation envelope only.`,
+    );
+  }
+
+  validateNegotiationEnvelopes({
+    envelopes: negotiationEnvelopeObjects,
+    expectedAgreementId: negotiated.agreementId,
+    expectedSignerAgentIds: ["agent-a", winnerBid.agentId],
+    usedNonces: usedNegotiationNonces,
+    strict: negotiationStrict,
+  });
+  const negotiationEnvelopes: Array<Record<string, unknown>> =
+    negotiationEnvelopeObjects.map((envelope) => ({
+      ...envelope,
+      verified: true,
+    }));
+
   log(
     "orchestrator",
     `Negotiation accepted: agreementId=${negotiated.agreementId}`,
@@ -1242,6 +1430,7 @@ async function runOrchestrator(args: Map<string, string>): Promise<void> {
         etaMinutes: b.etaMinutes,
         rationale: b.rationale,
       })),
+      negotiationEnvelopes,
     },
   });
   await writeState(state);

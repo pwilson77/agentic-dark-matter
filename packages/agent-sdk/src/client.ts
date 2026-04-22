@@ -5,6 +5,7 @@ import {
   inspectStatusViaMcp,
   inspectTimelineViaMcp,
   releaseViaMcp,
+  submitDeliveryProofViaMcp,
 } from "@adm/shared-core";
 import {
   type AgentSdkConfig,
@@ -26,6 +27,8 @@ import type {
   ReleaseViaMcpResult,
   RunStandardLifecycleInput,
   RunStandardLifecycleResult,
+  SubmitDeliveryProofInput,
+  SubmitDeliveryProofViaMcpResult,
 } from "./types.js";
 
 function assertSignerPrivateKey(value: string, operation: string): void {
@@ -81,6 +84,34 @@ export class AgentSdkClient {
       });
     } catch (error) {
       throw toSdkError({ operation: "approveSettlement", error });
+    }
+  }
+
+  async submitDeliveryProof(
+    input: SubmitDeliveryProofInput,
+  ): Promise<SubmitDeliveryProofViaMcpResult> {
+    assertContractAddress(input.contractAddress, "submitDeliveryProof");
+    assertSignerPrivateKey(input.signerPrivateKey, "submitDeliveryProof");
+
+    if (!input.proofHash || !/^0x[a-fA-F0-9]{64}$/.test(input.proofHash)) {
+      throw new AgentSdkError({
+        code: "INVALID_INPUT",
+        operation: "submitDeliveryProof",
+        message:
+          "proofHash must be a 0x-prefixed 32-byte hex string (64 hex chars)",
+      });
+    }
+
+    try {
+      return await submitDeliveryProofViaMcp({
+        rpcUrl: input.rpcUrl || this.config.rpcUrl,
+        contractAddress: input.contractAddress,
+        signerPrivateKey: input.signerPrivateKey,
+        proofHash: input.proofHash,
+        railId: input.railId || this.config.railId,
+      });
+    } catch (error) {
+      throw toSdkError({ operation: "submitDeliveryProof", error });
     }
   }
 
@@ -197,30 +228,44 @@ export class AgentSdkClient {
     const contractAddress = String(agreement.contractAddress || "");
     assertContractAddress(contractAddress, "runStandardLifecycle");
 
+    const rpcUrl = input.createInput.onChain?.rpcUrl || this.config.rpcUrl;
+    const railId = input.createInput.railId || this.config.railId;
+
     const approveA = await this.approveSettlement({
       contractAddress,
       signerPrivateKey: input.agentAPrivateKey,
-      rpcUrl: input.createInput.onChain?.rpcUrl || this.config.rpcUrl,
-      railId: input.createInput.railId || this.config.railId,
+      rpcUrl,
+      railId,
+    });
+
+    const proofHash =
+      input.deliveryProofHash || `0x${"ab".repeat(32)}`;
+    const submitProof = await this.submitDeliveryProof({
+      contractAddress,
+      signerPrivateKey: input.agentBPrivateKey,
+      proofHash,
+      rpcUrl,
+      railId,
     });
 
     const approveB = await this.approveSettlement({
       contractAddress,
       signerPrivateKey: input.agentBPrivateKey,
-      rpcUrl: input.createInput.onChain?.rpcUrl || this.config.rpcUrl,
-      railId: input.createInput.railId || this.config.railId,
+      rpcUrl,
+      railId,
     });
 
     const release = await this.release({
       contractAddress,
       signerPrivateKey: input.releaseSignerPrivateKey || input.agentAPrivateKey,
-      rpcUrl: input.createInput.onChain?.rpcUrl || this.config.rpcUrl,
-      railId: input.createInput.railId || this.config.railId,
+      rpcUrl,
+      railId,
     });
 
     return {
       agreement,
       approveA,
+      submitProof,
       approveB,
       release,
     };

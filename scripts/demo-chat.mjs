@@ -25,7 +25,10 @@ function parseEnvFile(filePath) {
 function resolvePlaceholders(values) {
   const out = { ...values };
   const replace = (value) =>
-    value.replace(/\$\{([^}]+)\}/g, (_, key) => out[key] ?? process.env[key] ?? "");
+    value.replace(
+      /\$\{([^}]+)\}/g,
+      (_, key) => out[key] ?? process.env[key] ?? "",
+    );
 
   for (const key of Object.keys(out)) {
     if (typeof out[key] !== "string") continue;
@@ -49,7 +52,8 @@ function run(cmd, args, env) {
     });
     child.on("exit", (code) => {
       if (code === 0) resolve();
-      else reject(new Error(`${cmd} ${args.join(" ")} exited with code ${code}`));
+      else
+        reject(new Error(`${cmd} ${args.join(" ")} exited with code ${code}`));
     });
     child.on("error", reject);
   });
@@ -72,7 +76,8 @@ async function main() {
         DARK_MATTER_NETWORK: "anvil-local",
         DARK_MATTER_DEPLOYER_PRIVATE_KEY:
           "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-        DARK_MATTER_AGENT_A_ADDRESS: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+        DARK_MATTER_AGENT_A_ADDRESS:
+          "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
       };
 
   const env = {
@@ -101,6 +106,8 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(`[demo-chat] Fatal: ${error instanceof Error ? error.message : String(error)}`);
+  console.error(
+    `[demo-chat] Fatal: ${error instanceof Error ? error.message : String(error)}`,
+  );
   process.exit(1);
 });

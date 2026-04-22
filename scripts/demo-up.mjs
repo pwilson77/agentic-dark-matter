@@ -45,14 +45,20 @@ if (USE_TESTNET) {
     const [, k, rawV] = m;
     const v = rawV.replace(/^['"]|['"]$/g, "");
     fullEnv[k] = v;
-    if (k.startsWith("DARK_MATTER_LLM_") || k === "DARK_MATTER_TRANSCRIPT_SECRET") {
+    if (
+      k.startsWith("DARK_MATTER_LLM_") ||
+      k === "DARK_MATTER_TRANSCRIPT_SECRET"
+    ) {
       llmEnv[k] = v;
     }
   }
   // Resolve ${VAR} placeholders within .env values (supports chained refs).
   const resolvePlaceholders = (value, depth = 0) => {
     if (typeof value !== "string" || depth > 5) return value;
-    return value.replace(/\$\{([^}]+)\}/g, (_, key) => fullEnv[key] ?? process.env[key] ?? "");
+    return value.replace(
+      /\$\{([^}]+)\}/g,
+      (_, key) => fullEnv[key] ?? process.env[key] ?? "",
+    );
   };
   for (const key of Object.keys(fullEnv)) {
     let current = fullEnv[key];
@@ -62,7 +68,10 @@ if (USE_TESTNET) {
       current = next;
     }
     fullEnv[key] = current;
-    if (key.startsWith("DARK_MATTER_LLM_") || key === "DARK_MATTER_TRANSCRIPT_SECRET") {
+    if (
+      key.startsWith("DARK_MATTER_LLM_") ||
+      key === "DARK_MATTER_TRANSCRIPT_SECRET"
+    ) {
       llmEnv[key] = current;
     }
   }
@@ -113,9 +122,7 @@ const sessionFile = "/tmp/agentic-dark-matter-session.jsonl";
 for (const f of [stateFile, logFile, sessionFile]) {
   if (existsSync(f)) {
     unlinkSync(f);
-    console.log(
-      `[demo-up] cleared stale ${f}`,
-    );
+    console.log(`[demo-up] cleared stale ${f}`);
   }
 }
 
@@ -233,9 +240,7 @@ async function pickReachableRpc(candidates, timeoutMs = 5000) {
 
 // ---- orchestrate startup ----
 async function main() {
-  const modeLabel = USE_TESTNET
-    ? "BNB testnet (Chapel)"
-    : "local anvil";
+  const modeLabel = USE_TESTNET ? "BNB testnet (Chapel)" : "local anvil";
   console.log(
     `${prefix("demo")} Agentic Dark Matter — demo up (${modeLabel})${RESET}`,
   );
@@ -331,10 +336,10 @@ async function main() {
 
   const chatCmd = USE_TESTNET ? "demo:chat:testnet" : "demo:chat";
   const uiCmd = USE_TESTNET ? "ui:dev:testnet:state" : "ui:dev:local";
+  console.log(`${prefix("demo")} agents up. In another terminal run:${RESET}`);
   console.log(
-    `${prefix("demo")} agents up. In another terminal run:${RESET}`,
+    `${prefix("demo")}   ${BOLD}npm run ${uiCmd}${RESET}${COLORS.demo} (UI)${RESET}`,
   );
-  console.log(`${prefix("demo")}   ${BOLD}npm run ${uiCmd}${RESET}${COLORS.demo} (UI)${RESET}`);
   console.log(
     `${prefix("demo")}   ${BOLD}npm run ${chatCmd}${RESET}${COLORS.demo} (post RFQ)${RESET}`,
   );
