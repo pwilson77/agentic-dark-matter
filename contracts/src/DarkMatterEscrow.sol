@@ -58,6 +58,10 @@ contract DarkMatterEscrow {
         if (_revenueShareBpsAgentA + _revenueShareBpsAgentB != 10_000) {
             revert InvalidRevenueShare();
         }
+        // Winner-takes payout model: executor (agentB) receives 100% by default.
+        if (_revenueShareBpsAgentA != 0 || _revenueShareBpsAgentB != 10_000) {
+            revert InvalidRevenueShare();
+        }
 
         agentA = _agentA;
         agentB = _agentB;
@@ -117,15 +121,7 @@ contract DarkMatterEscrow {
     }
 
     function _distribute(uint256 amount) internal {
-        uint256 amountToAgentA = (amount * revenueShareBpsAgentA) / 10_000;
-        uint256 amountToAgentB = amount - amountToAgentA;
-
-        (bool okA, ) = payable(agentA).call{value: amountToAgentA}("");
-        if (!okA) {
-            revert TransferFailed();
-        }
-
-        (bool okB, ) = payable(agentB).call{value: amountToAgentB}("");
+        (bool okB, ) = payable(agentB).call{value: amount}("");
         if (!okB) {
             revert TransferFailed();
         }

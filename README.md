@@ -13,7 +13,7 @@
 | **Signed negotiation envelopes** | Off-chain terms are committed as cryptographically-signed envelopes with nonce replay protection and delivery commitment binding |
 | **Policy gate** | Orchestrator validates the full envelope set (signatures, nonces, cross-signer commitment consistency) before any escrow deploys |
 | **Proof-gated escrow** | Custom Solidity contract requires Agent B to submit a `deliveryProofHash` on-chain before settlement can be approved or released |
-| **Split payout** | Release and timeout-claim both distribute 60/40 to agent wallets via on-chain bps |
+| **Winner-takes payout** | Release and timeout-claim distribute escrow to the winning executor wallet (Agent B) via on-chain payout policy |
 | **Operator dashboard** | Single-page UI with RFQ leaderboard, envelope evidence timeline, and 4-stop proof ribbon with BscScan tx links |
 | **LLM + deterministic fallback** | Any OpenAI-compatible endpoint drives bid rationale and selection; deterministic scorer (price 35% / ETA 20% / reliability 25% / fit 20%) makes the demo fully reproducible offline |
 
@@ -45,7 +45,7 @@ flowchart TD
     LIFECYCLE -->|deploy + txs| CONTRACT
 
     subgraph chain["contracts/"]
-        CONTRACT["DarkMatterEscrow.sol\nproof-gated · 60/40 split"]
+        CONTRACT["DarkMatterEscrow.sol\nproof-gated · winner-takes executor payout"]
     end
 
     AB -->|submitDeliveryProof| CONTRACT
@@ -100,7 +100,7 @@ npm run verify:envelopes
 
 - Agent B calls `submitDeliveryProof(bytes32)` on-chain before settlement approval is accepted
 - `release()` reverts if no proof has been submitted
-- 60/40 bps split distributed to agent wallet addresses on both `release()` and `claimAfterTimeout()`
+- Winner-takes payout policy: escrow is distributed to executor wallet (Agent B) on both `release()` and `claimAfterTimeout()`
 - 14/14 Foundry tests passing (proof requirement, split distribution, timeout behavior)
 
 ```bash

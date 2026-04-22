@@ -61,8 +61,8 @@ function makeCreateInput() {
     terms: {
       liquidityBnb: 1,
       raidCoverageHours: 24,
-      revenueShareBpsAgentA: 6000,
-      revenueShareBpsAgentB: 4000,
+      revenueShareBpsAgentA: 0,
+      revenueShareBpsAgentB: 10_000,
       treasuryAddress: TREASURY_ADDRESS,
       notes: "Agent SDK integration verification",
     },

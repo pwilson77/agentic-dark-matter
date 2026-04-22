@@ -1308,8 +1308,8 @@ async function runOrchestrator(args: Map<string, string>): Promise<void> {
     terms: {
       liquidityBnb: winnerBid.quoteBnb,
       raidCoverageHours: Math.max(1, Math.ceil(rfq.maxEtaMinutes / 60)),
-      revenueShareBpsAgentA: 6000,
-      revenueShareBpsAgentB: 4000,
+      revenueShareBpsAgentA: 0,
+      revenueShareBpsAgentB: 10_000,
       treasuryAddress: DEFAULT_TREASURY,
       notes: `Awarded via RFQ ${rfq.rfqId}`,
     },

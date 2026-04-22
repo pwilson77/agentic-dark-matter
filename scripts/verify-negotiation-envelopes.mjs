@@ -23,8 +23,8 @@ const baseInput = {
   terms: {
     liquidityBnb: 1,
     raidCoverageHours: 24,
-    revenueShareBpsAgentA: 6000,
-    revenueShareBpsAgentB: 4000,
+    revenueShareBpsAgentA: 0,
+    revenueShareBpsAgentB: 10_000,
     treasuryAddress: "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
     notes: "test",
   },

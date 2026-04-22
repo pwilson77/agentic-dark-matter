@@ -50,7 +50,7 @@ Agentic Dark Matter enables a verifiable A2A workflow:
 3. Custom Solidity escrow
 
 - Proof-gated release: executor must submit an on-chain delivery proof hash before release can succeed.
-- Split payout (60/40 bps) to agent wallets on both release and timeout-claim paths.
+- Winner-takes payout: escrow is paid to the winning executor wallet (Agent B) on both release and timeout-claim paths.
 - 14/14 contract tests passing covering proof requirement, split distribution, and timeout behavior.
 
 4. Signed negotiation envelopes
@@ -66,7 +66,7 @@ Agentic Dark Matter enables a verifiable A2A workflow:
 
 ## Current Payout Semantics
 
-Release distributes escrow to participant agent wallets using on-chain revenue-share bps (currently 60/40 between Agent A and Agent B), and requires an executor-submitted delivery proof hash before release can succeed.
+Release distributes escrow to the winning executor wallet (Agent B) after dual approval and an executor-submitted delivery proof hash. Timeout claim follows the same winner-takes payout policy.
 
 ## Roadmap / Next Milestones
 
