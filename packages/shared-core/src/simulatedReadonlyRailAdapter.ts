@@ -5,6 +5,7 @@ import type {
   RailInspectTimelineInput,
   RailInspectTimelineResult,
   RailSignerActionInput,
+  RailSubmitDeliveryProofInput,
   RailTxResult,
 } from "./railAdapter.js";
 import type { DeployAgreementInput } from "./deploy.js";
@@ -20,6 +21,7 @@ interface SimulatedPoolState {
   contractAddress: string;
   agreement: AgreementArtifact;
   approvals: Set<string>;
+  proofHash: string | null;
   released: boolean;
   timeoutClaimed: boolean;
   timeline: Array<{
@@ -139,6 +141,7 @@ export const simulatedReadonlyRailAdapter: RailAdapter = {
       contractAddress: contractAddress.toLowerCase(),
       agreement: artifact,
       approvals: new Set<string>(),
+      proofHash: null,
       released: false,
       timeoutClaimed: false,
       timeline: [],
@@ -169,6 +172,35 @@ export const simulatedReadonlyRailAdapter: RailAdapter = {
       state,
       "Simulated approval",
       `Approval recorded from ${signer}. Count=${state.approvals.size}`,
+      "ok",
+    );
+    return {
+      contractAddress: state.contractAddress,
+      signer,
+      txHash,
+    };
+  },
+  async submitDeliveryProof(
+    _input: RailSubmitDeliveryProofInput,
+  ): Promise<RailTxResult> {
+    const state = findState(_input);
+    if (state.released || state.timeoutClaimed) {
+      throw new Error("simulated pool already settled");
+    }
+    if (!_input.proofHash || !/^0x[a-fA-F0-9]{64}$/.test(_input.proofHash)) {
+      throw new Error(
+        `submitDeliveryProof: proofHash must be a 32-byte hex string, got: ${_input.proofHash}`,
+      );
+    }
+    state.proofHash = _input.proofHash;
+    const signer = getSignerAddress(_input.signerPrivateKey).toLowerCase();
+    const txHash = await makePseudoTxHash(
+      `proof:${state.poolId}:${signer}:${Date.now()}`,
+    );
+    pushTimeline(
+      state,
+      "Simulated delivery proof",
+      `Proof hash ${_input.proofHash.slice(0, 10)}… recorded by ${signer}.`,
       "ok",
     );
     return {

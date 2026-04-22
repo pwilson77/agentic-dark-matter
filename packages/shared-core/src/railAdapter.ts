@@ -64,6 +64,10 @@ export interface RailSignerActionInput {
   railId?: RailId;
 }
 
+export interface RailSubmitDeliveryProofInput extends RailSignerActionInput {
+  proofHash: string;
+}
+
 export interface RailTxResult {
   contractAddress: string;
   signer: string;
@@ -74,6 +78,7 @@ export interface RailAdapter {
   railId: RailId;
   createAgreement(input: DeployAgreementInput): Promise<AgreementArtifact>;
   approveSettlement(input: RailSignerActionInput): Promise<RailTxResult>;
+  submitDeliveryProof(input: RailSubmitDeliveryProofInput): Promise<RailTxResult>;
   release(input: RailSignerActionInput): Promise<RailTxResult>;
   claimAfterTimeout(input: RailSignerActionInput): Promise<RailTxResult>;
   inspectStatus(

@@ -6,6 +6,7 @@ import type {
   RailInspectStatusResult,
   RailInspectTimelineInput,
   RailInspectTimelineResult,
+  RailSubmitDeliveryProofInput,
 } from "./railAdapter.js";
 import type { AgreementArtifact } from "./types.js";
 export type InspectStatusViaMcpInput = RailInspectStatusInput;
@@ -21,6 +22,17 @@ export interface ApproveSettlementViaMcpInput {
 }
 
 export interface ApproveSettlementViaMcpResult {
+  contractAddress: string;
+  signer: string;
+  txHash: string;
+}
+
+export interface SubmitDeliveryProofViaMcpInput
+  extends RailSubmitDeliveryProofInput {
+  railId?: RailId;
+}
+
+export interface SubmitDeliveryProofViaMcpResult {
   contractAddress: string;
   signer: string;
   txHash: string;
@@ -81,6 +93,13 @@ export async function approveSettlementViaMcp(
 ): Promise<ApproveSettlementViaMcpResult> {
   const rail = resolveRailAdapter({ railId: input.railId });
   return rail.approveSettlement(input);
+}
+
+export async function submitDeliveryProofViaMcp(
+  input: SubmitDeliveryProofViaMcpInput,
+): Promise<SubmitDeliveryProofViaMcpResult> {
+  const rail = resolveRailAdapter({ railId: input.railId });
+  return rail.submitDeliveryProof(input);
 }
 
 export async function releaseViaMcp(

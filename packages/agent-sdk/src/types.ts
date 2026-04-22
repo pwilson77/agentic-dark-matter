@@ -7,6 +7,7 @@ import type {
   InspectTimelineViaMcpResult,
   RailId,
   ReleaseViaMcpResult,
+  SubmitDeliveryProofViaMcpResult,
 } from "@adm/shared-core";
 
 export interface ApproveSettlementInput {
@@ -19,6 +20,14 @@ export interface ApproveSettlementInput {
 export interface ReleaseSettlementInput {
   contractAddress: string;
   signerPrivateKey: string;
+  rpcUrl?: string;
+  railId?: RailId;
+}
+
+export interface SubmitDeliveryProofInput {
+  contractAddress: string;
+  signerPrivateKey: string;
+  proofHash: string;
   rpcUrl?: string;
   railId?: RailId;
 }
@@ -54,11 +63,14 @@ export interface RunStandardLifecycleInput {
   agentAPrivateKey: string;
   agentBPrivateKey: string;
   releaseSignerPrivateKey?: string;
+  /** 0x-prefixed 32-byte hex delivery proof hash. Required when the escrow contract enforces proof-gated release. */
+  deliveryProofHash?: string;
 }
 
 export interface RunStandardLifecycleResult {
   agreement: AgreementArtifact;
   approveA: ApproveSettlementViaMcpResult;
+  submitProof: SubmitDeliveryProofViaMcpResult;
   approveB: ApproveSettlementViaMcpResult;
   release: ReleaseViaMcpResult;
 }
@@ -70,4 +82,5 @@ export type {
   InspectStatusViaMcpResult,
   InspectTimelineViaMcpResult,
   ReleaseViaMcpResult,
+  SubmitDeliveryProofViaMcpResult,
 };

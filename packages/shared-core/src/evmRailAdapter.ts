@@ -7,6 +7,7 @@ import type {
   RailInspectTimelineInput,
   RailInspectTimelineResult,
   RailSignerActionInput,
+  RailSubmitDeliveryProofInput,
   RailTxResult,
 } from "./railAdapter.js";
 import {
@@ -18,6 +19,7 @@ const ESCROW_ABI = [
   "function agentA() view returns (address)",
   "function agentB() view returns (address)",
   "function approveSettlement()",
+  "function submitDeliveryProof(bytes32 proofHash)",
   "function release()",
   "function claimAfterTimeout()",
 ] as const;
@@ -75,6 +77,32 @@ async function executeSignerAction(
   };
 }
 
+async function executeSubmitDeliveryProof(
+  input: RailSubmitDeliveryProofInput,
+): Promise<RailTxResult> {
+  const provider = new JsonRpcProvider(input.rpcUrl);
+  const signer = new Wallet(input.signerPrivateKey, provider);
+  const contractAddress = normalizeAddress(input.contractAddress);
+  await assertSignerIsParticipant(provider, contractAddress, signer);
+
+  if (!input.proofHash || !/^0x[a-fA-F0-9]{64}$/.test(input.proofHash)) {
+    throw new Error(
+      `submitDeliveryProof: proofHash must be a 32-byte hex string, got: ${input.proofHash}`,
+    );
+  }
+
+  const managedSigner = new NonceManager(signer);
+  const contract = new Contract(contractAddress, ESCROW_ABI, managedSigner);
+  const tx = await contract.submitDeliveryProof(input.proofHash);
+  await tx.wait();
+
+  return {
+    contractAddress,
+    signer: signer.address,
+    txHash: tx.hash,
+  };
+}
+
 export const evmRailAdapter: RailAdapter = {
   railId: "evm-bnb",
   async createAgreement(input) {
@@ -82,6 +110,9 @@ export const evmRailAdapter: RailAdapter = {
   },
   async approveSettlement(input) {
     return executeSignerAction(input, "approveSettlement");
+  },
+  async submitDeliveryProof(input) {
+    return executeSubmitDeliveryProof(input);
   },
   async release(input) {
     return executeSignerAction(input, "release");
