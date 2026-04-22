@@ -66,6 +66,7 @@ export interface NegotiationEnvelopePayload {
   participants: [string, string];
   secrecyLevel: "private" | "sealed";
   termsHash: string;
+  deliveryCommitmentHash: string;
   nonce: string;
   createdAt: string;
 }

@@ -75,7 +75,9 @@ const server = createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`[dgrid-mock] relay server listening on http://localhost:${PORT}`);
+  console.log(
+    `[dgrid-mock] relay server listening on http://localhost:${PORT}`,
+  );
   console.log(`[dgrid-mock]   POST http://localhost:${PORT}/relay`);
   console.log(`[dgrid-mock]   GET  http://localhost:${PORT}/health`);
   console.log(`[dgrid-mock]   GET  http://localhost:${PORT}/log`);

@@ -831,15 +831,9 @@ interface RuntimeStateAgreement {
       verified?: boolean;
       payload?: {
         nonce?: string;
+        deliveryCommitmentHash?: string;
       };
     }>;
-    dgridRelay?: {
-      endpoint?: string;
-      topic?: string;
-      published?: number;
-      failed?: number;
-      error?: string;
-    };
     // legacy shape — kept for backward compat with old fixtures
     rfq?: {
       selected?: {
@@ -1238,6 +1232,41 @@ async function loadLocalPoolsFromStateFile(): Promise<PoolItem[]> {
           : `Contract ${contractAddress} · ${selectedQuoteBnb} BNB locked`,
         status: "ok",
       });
+      const negotiationEnvelopes = agreement.meta?.negotiationEnvelopes || [];
+      if (negotiationEnvelopes.length > 0) {
+        const signerIds = negotiationEnvelopes
+          .map((env) => env.signerAgentId)
+          .filter((x): x is string => typeof x === "string" && x.length > 0);
+        const verifiedCount = negotiationEnvelopes.filter(
+          (env) => env.verified === true,
+        ).length;
+        const nonces = negotiationEnvelopes
+          .map((env) => env.payload?.nonce)
+          .filter((x): x is string => typeof x === "string" && x.length > 0);
+        const uniqueNonceCount = new Set(nonces).size;
+        const commitments = negotiationEnvelopes
+          .map((env) => env.payload?.deliveryCommitmentHash)
+          .filter((x): x is string => typeof x === "string" && x.length > 0)
+          .map((x) => x.toLowerCase());
+        const uniqueCommitmentCount = new Set(commitments).size;
+
+        const envelopeStatus =
+          verifiedCount === negotiationEnvelopes.length &&
+          uniqueNonceCount === nonces.length &&
+          commitments.length === negotiationEnvelopes.length &&
+          uniqueCommitmentCount === 1
+            ? "ok"
+            : "warn";
+
+        timeline.push({
+          id: `${shortId}-negotiation-evidence`,
+          at: agreement.createdAt || "recent",
+          title: "Negotiation evidence verified",
+          detail: `signers=${signerIds.join(",",
+          )} · verified=${verifiedCount}/${negotiationEnvelopes.length} · nonceUnique=${uniqueNonceCount}/${nonces.length} · commitment=${uniqueCommitmentCount === 1 ? "consistent" : "inconsistent"}`,
+          status: envelopeStatus,
+        });
+      }
       for (const [addr, tx] of Object.entries(approveTxHashes)) {
         const who =
           addr.toLowerCase() === agentALower
@@ -1260,30 +1289,6 @@ async function loadLocalPoolsFromStateFile(): Promise<PoolItem[]> {
           title: "Escrow released",
           detail: `release tx ${releaseTxHash.slice(0, 14)}…`,
           status: "ok",
-        });
-      }
-
-      const dgridRelay = agreement.meta?.dgridRelay as
-        | {
-            endpoint?: string;
-            topic?: string;
-            published?: number;
-            failed?: number;
-            error?: string;
-          }
-        | undefined;
-      if (dgridRelay) {
-        const failed = Number(dgridRelay.failed || 0);
-        const published = Number(dgridRelay.published || 0);
-        const endpointLabel = dgridRelay.endpoint || "dgrid-endpoint";
-        timeline.push({
-          id: `${shortId}-dgrid-relay`,
-          at: agreement.createdAt || "recent",
-          title: "DGrid relay",
-          detail: dgridRelay.error
-            ? `Relay error: ${dgridRelay.error}`
-            : `Published ${published} envelope(s), failed ${failed} · ${endpointLabel}`,
-          status: failed > 0 || dgridRelay.error ? "warn" : "ok",
         });
       }
 

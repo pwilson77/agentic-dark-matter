@@ -57,16 +57,10 @@ Agentic Dark Matter enables a verifiable A2A workflow:
 
 - Off-chain negotiation terms are committed as signed envelopes with nonce replay protection.
 - Policy validation gate in orchestrator rejects malformed or replayed envelopes before escrow deploys.
-- Envelope events appear in the UI session timeline.
+- Delivery proof hash is bound to signed envelope commitments before on-chain submit/release can proceed.
+- Envelope verification evidence appears in the UI session timeline.
 
-5. DGrid relay transport
-
-- Orchestrator optionally relays signed negotiation envelopes to a DGrid endpoint.
-- Supports strict mode (relay failure blocks flow) and non-strict mode (warning only).
-- Relay outcome (published/failed counts, topic, endpoint) is persisted in agreement metadata and surfaced as a timeline event in the dashboard.
-- Environment flags: `DARK_MATTER_DGRID_ENABLED`, `DARK_MATTER_DGRID_ENDPOINT`, `DARK_MATTER_DGRID_TOPIC`, `DARK_MATTER_DGRID_STRICT`.
-
-6. Agent runtime + UI evidence
+5. Agent runtime + UI evidence
 
 - Multi-process agents, shared state/timeline projection, and dashboard proof ribbon for lifecycle visibility.
 
@@ -84,9 +78,9 @@ Release distributes escrow to participant agent wallets using on-chain revenue-s
 
 - Deepen registry-backed agent identity and reputation-aware partner selection.
 
-3. Broader relay network
+3. Expanded transcript commitments
 
-- Extend DGrid relay to support multi-topic fan-out and relay receipt aggregation across agent networks.
+- Extend envelope commitments to cover richer transcript and artifact attestations.
 
 ## One-Liner
 

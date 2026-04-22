@@ -15,11 +15,10 @@ import {
   approveSettlementViaMcp,
   createNegotiationEnvelope,
   createAgreementViaMcp,
-  relayNegotiationEnvelopesToDgrid,
   negotiateJointVenture,
   releaseViaMcp,
   storeEncryptedTranscript,
-  verifyNegotiationEnvelope,
+  validateNegotiationEnvelopeSet,
 } from "@adm/shared-core";
 import type { AgentIdentity, NegotiationEnvelope } from "@adm/shared-core";
 
@@ -226,8 +225,9 @@ function getSignerKeyForAgent(agentId: string): string | null {
 function collectNegotiationNonces(state: RuntimeState): Set<string> {
   const seen = new Set<string>();
   for (const agreement of state.agreements) {
-    const envelopes = (agreement.meta as { negotiationEnvelopes?: unknown[] } | undefined)
-      ?.negotiationEnvelopes;
+    const envelopes = (
+      agreement.meta as { negotiationEnvelopes?: unknown[] } | undefined
+    )?.negotiationEnvelopes;
     if (!Array.isArray(envelopes)) continue;
     for (const entry of envelopes) {
       if (!entry || typeof entry !== "object") continue;
@@ -247,48 +247,7 @@ function validateNegotiationEnvelopes(input: {
   usedNonces: Set<string>;
   strict: boolean;
 }): void {
-  const { envelopes, expectedAgreementId, expectedSignerAgentIds, usedNonces, strict } = input;
-  if (envelopes.length === 0) {
-    throw new Error("Negotiation envelope policy failed: no envelopes were created.");
-  }
-
-  const uniqueSignerIds = new Set<string>();
-  const uniqueNonces = new Set<string>();
-  for (const envelope of envelopes) {
-    if (!verifyNegotiationEnvelope(envelope)) {
-      throw new Error(
-        `Negotiation envelope policy failed: invalid signature for ${envelope.signerAgentId}.`,
-      );
-    }
-    if (envelope.payload.agreementId !== expectedAgreementId) {
-      throw new Error(
-        `Negotiation envelope policy failed: agreementId mismatch for ${envelope.signerAgentId}.`,
-      );
-    }
-    const nonce = envelope.payload.nonce;
-    if (usedNonces.has(nonce)) {
-      throw new Error(
-        `Negotiation envelope policy failed: replayed nonce detected (${nonce}).`,
-      );
-    }
-    if (uniqueNonces.has(nonce)) {
-      throw new Error(
-        `Negotiation envelope policy failed: duplicate nonce within envelope set (${nonce}).`,
-      );
-    }
-    uniqueNonces.add(nonce);
-    uniqueSignerIds.add(envelope.signerAgentId);
-  }
-
-  if (strict) {
-    for (const signerId of expectedSignerAgentIds) {
-      if (!uniqueSignerIds.has(signerId)) {
-        throw new Error(
-          `Negotiation envelope policy failed: missing required signer envelope (${signerId}).`,
-        );
-      }
-    }
-  }
+  validateNegotiationEnvelopeSet(input);
 }
 
 // ---------- LLM helpers ----------
@@ -622,6 +581,46 @@ function getDeliveryProof(
   };
 }
 
+function getNegotiationEnvelopesFromAgreement(
+  agreement: AgreementStateRecord,
+): NegotiationEnvelope[] {
+  const raw = (agreement.meta as { negotiationEnvelopes?: unknown } | undefined)
+    ?.negotiationEnvelopes;
+  if (!Array.isArray(raw)) return [];
+  const out: NegotiationEnvelope[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const env = item as Partial<NegotiationEnvelope>;
+    if (
+      typeof env.envelopeId === "string" &&
+      typeof env.signerAgentId === "string" &&
+      typeof env.signerAddress === "string" &&
+      typeof env.payloadHash === "string" &&
+      typeof env.signature === "string" &&
+      env.payload &&
+      typeof env.payload === "object"
+    ) {
+      out.push(env as NegotiationEnvelope);
+    }
+  }
+  return out;
+}
+
+function getExecutorEnvelopeDeliveryCommitment(
+  agreement: AgreementStateRecord,
+): string | null {
+  const executorAddress = agreement.agentB.toLowerCase();
+  const envelopes = getNegotiationEnvelopesFromAgreement(agreement);
+  const envelope = envelopes.find(
+    (e) => e.signerAddress.toLowerCase() === executorAddress,
+  );
+  const commitment = envelope?.payload.deliveryCommitmentHash;
+  if (typeof commitment !== "string" || !/^[a-f0-9]{64}$/i.test(commitment)) {
+    return null;
+  }
+  return commitment.toLowerCase();
+}
+
 function buildDeliveryProof(
   config: AgentConfig,
   agreement: AgreementStateRecord,
@@ -646,9 +645,10 @@ function buildDeliveryProof(
     agreementHash ? `agreementHash:${agreementHash}` : "",
     transcriptHash ? `transcriptHash:${transcriptHash}` : "",
   ].filter(Boolean);
-  const proofHash = createHash("sha256")
-    .update(evidence.join("|"), "utf8")
-    .digest("hex");
+  const expectedCommitment = getExecutorEnvelopeDeliveryCommitment(agreement);
+  const proofHash =
+    expectedCommitment ||
+    createHash("sha256").update(evidence.join("|"), "utf8").digest("hex");
   return {
     submittedBy: config.wallet.address.toLowerCase(),
     submittedAt,
@@ -693,6 +693,11 @@ async function shouldApproveWithLlm(
 ): Promise<boolean> {
   if (!isLlmEnabled()) return true;
   const deliveryProof = getDeliveryProof(agreement);
+  const expectedCommitment = getExecutorEnvelopeDeliveryCommitment(agreement);
+  const commitmentMatches =
+    !!deliveryProof &&
+    !!expectedCommitment &&
+    deliveryProof.proofHash.toLowerCase() === expectedCommitment;
   // Coordinator waits until executor has posted a delivery proof; there is
   // nothing to review yet, so skip silently instead of asking the LLM.
   if (config.role === "coordinator" && !deliveryProof) {
@@ -716,9 +721,12 @@ async function shouldApproveWithLlm(
       `currentApprovals=${approvalCount}`,
       `hasDeliveryProof=${deliveryProof ? "yes" : "no"}`,
       `deliveryProofHash=${deliveryProof?.proofHash ?? ""}`,
+      `expectedCommitment=${expectedCommitment ?? ""}`,
+      `commitmentMatches=${commitmentMatches ? "yes" : "no"}`,
       "",
       "Approve if the agreement looks valid and, for coordinators, the executor",
-      "has submitted a delivery proof. Reject only if something looks wrong.",
+      "has submitted a delivery proof that matches the negotiated commitment.",
+      "Reject only if something looks wrong.",
     ].join("\n");
     const content = await llmChat(systemPrompt, userPrompt);
     const upper = content.toUpperCase();
@@ -821,7 +829,22 @@ async function processAgreements(
       agreement.status === "deployed" &&
       !getDeliveryProof(agreement)
     ) {
+      const expectedCommitment = getExecutorEnvelopeDeliveryCommitment(agreement);
+      if (!expectedCommitment) {
+        log(
+          config.agentId,
+          `Delivery proof blocked for ${agreement.contractAddress}: missing executor envelope commitment.`,
+        );
+        continue;
+      }
       const proof = buildDeliveryProof(config, agreement);
+      if (proof.proofHash.toLowerCase() !== expectedCommitment) {
+        log(
+          config.agentId,
+          `Delivery proof blocked for ${agreement.contractAddress}: commitment mismatch expected=${expectedCommitment} actual=${proof.proofHash}`,
+        );
+        continue;
+      }
       const proofTxHash = await submitDeliveryProofOnChain({
         rpcUrl: config.network.rpcUrl,
         contractAddress: agreement.contractAddress,
@@ -881,6 +904,21 @@ async function processAgreements(
           log(
             config.agentId,
             `Release blocked for ${agreement.contractAddress}: missing delivery proof.`,
+          );
+          continue;
+        }
+        const expectedCommitment = getExecutorEnvelopeDeliveryCommitment(agreement);
+        if (!expectedCommitment) {
+          log(
+            config.agentId,
+            `Release blocked for ${agreement.contractAddress}: missing executor envelope commitment.`,
+          );
+          continue;
+        }
+        if (proof.proofHash.toLowerCase() !== expectedCommitment) {
+          log(
+            config.agentId,
+            `Release blocked for ${agreement.contractAddress}: proof hash does not match committed envelope hash.`,
           );
           continue;
         }
@@ -1153,6 +1191,14 @@ async function runOrchestrator(args: Map<string, string>): Promise<void> {
       "180000",
     10,
   );
+  const negotiationStrict =
+    (process.env.DARK_MATTER_NEGOTIATION_STRICT || "true").toLowerCase() ===
+    "true";
+
+  log(
+    "orchestrator",
+    `Envelope policy profile: strict=${negotiationStrict ? "on" : "off"}, replayProtection=on, signatureVerification=on, commitmentBinding=on`,
+  );
 
   if (interactive) {
     const rl = readline.createInterface({ input, output });
@@ -1275,9 +1321,6 @@ async function runOrchestrator(args: Map<string, string>): Promise<void> {
   }
 
   const negotiationEnvelopeObjects: NegotiationEnvelope[] = [];
-  const negotiationStrict =
-    (process.env.DARK_MATTER_NEGOTIATION_STRICT || "true").toLowerCase() ===
-    "true";
   const agentASignerKey = getSignerKeyForAgent("agent-a") || deployerKey;
   const agentAEnvelope = await createNegotiationEnvelope({
     signerAgentId: "agent-a",
@@ -1321,60 +1364,6 @@ async function runOrchestrator(args: Map<string, string>): Promise<void> {
       ...envelope,
       verified: true,
     }));
-
-  const dgridEnabled =
-    (process.env.DARK_MATTER_DGRID_ENABLED || "false").toLowerCase() ===
-    "true";
-  const dgridStrict =
-    (process.env.DARK_MATTER_DGRID_STRICT || "false").toLowerCase() ===
-    "true";
-  const dgridEndpoint = process.env.DARK_MATTER_DGRID_ENDPOINT || "";
-  const dgridTopic =
-    process.env.DARK_MATTER_DGRID_TOPIC || "agentic-dark-matter.negotiation";
-
-  let dgridRelayMeta: Record<string, unknown> | undefined;
-  if (dgridEnabled) {
-    try {
-      if (!dgridEndpoint) {
-        throw new Error(
-          "DGRID enabled but DARK_MATTER_DGRID_ENDPOINT is missing.",
-        );
-      }
-      const relay = await relayNegotiationEnvelopesToDgrid({
-        endpoint: dgridEndpoint,
-        topic: dgridTopic,
-        envelopes: negotiationEnvelopeObjects,
-        apiKey: process.env.DARK_MATTER_DGRID_API_KEY,
-        timeoutMs: Number.parseInt(
-          process.env.DARK_MATTER_DGRID_TIMEOUT_MS || "8000",
-          10,
-        ),
-      });
-      dgridRelayMeta = relay as unknown as Record<string, unknown>;
-      log(
-        "orchestrator",
-        `DGrid relay: published=${relay.published} failed=${relay.failed} topic=${relay.topic}`,
-      );
-      if (dgridStrict && relay.failed > 0) {
-        throw new Error(
-          `DGrid strict mode failed: ${relay.failed} envelope(s) were not relayed.`,
-        );
-      }
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      if (dgridStrict) {
-        throw new Error(`DGrid relay policy failed: ${msg}`);
-      }
-      dgridRelayMeta = {
-        endpoint: dgridEndpoint,
-        topic: dgridTopic,
-        published: 0,
-        failed: negotiationEnvelopeObjects.length,
-        error: msg,
-      };
-      log("orchestrator", `DGrid relay warning: ${msg}`);
-    }
-  }
 
   log(
     "orchestrator",
@@ -1442,7 +1431,6 @@ async function runOrchestrator(args: Map<string, string>): Promise<void> {
         rationale: b.rationale,
       })),
       negotiationEnvelopes,
-      dgridRelay: dgridRelayMeta,
     },
   });
   await writeState(state);

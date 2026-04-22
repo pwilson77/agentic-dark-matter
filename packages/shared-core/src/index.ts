@@ -3,7 +3,6 @@ export * from "./logger.js";
 export * from "./fixtures.js";
 export * from "./negotiation.js";
 export * from "./negotiationEnvelope.js";
-export * from "./dgridRelay.js";
 export * from "./deploy.js";
 export * from "./settlement.js";
 export * from "./bnbMcpAdapter.js";

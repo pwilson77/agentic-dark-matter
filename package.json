@@ -18,6 +18,7 @@
     "contracts:build": "cd contracts && forge build",
     "contracts:test": "cd contracts && forge test -vv",
     "verify:local-pools": "node ./scripts/verify-local-pools.mjs",
+    "verify:envelopes": "npm --workspace @adm/shared-core run build && node ./scripts/verify-negotiation-envelopes.mjs",
     "verify:timeout-operators": "node ./scripts/verify-timeout-operator-actions.mjs",
     "verify:mcp-parity": "npm --workspace @adm/shared-core run build && node ./scripts/verify-mcp-parity.mjs --mode matrix",
     "verify:mcp-parity:evm": "npm --workspace @adm/shared-core run build && node ./scripts/verify-mcp-parity.mjs --mode matrix --rail evm-bnb",
