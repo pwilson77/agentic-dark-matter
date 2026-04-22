@@ -839,6 +839,9 @@ async function waitForSelection(
   timeoutMs: number,
 ): Promise<RfqRequestRecord> {
   const started = Date.now();
+  let lastKnownBids = 0;
+  let lastKnownMinBids = 0;
+  let lastKnownStatus: RfqRequestRecord["status"] | "missing" = "missing";
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const state = await readState();
@@ -846,9 +849,14 @@ async function waitForSelection(
     if (rfq && rfq.status === "selected" && rfq.selection) {
       return rfq;
     }
+    if (rfq) {
+      lastKnownBids = rfq.bids.length;
+      lastKnownMinBids = rfq.minBids;
+      lastKnownStatus = rfq.status;
+    }
     if (Date.now() - started > timeoutMs) {
       throw new Error(
-        `Timed out waiting for Agent A to select winner for RFQ ${rfqId}`,
+        `Timed out waiting for Agent A to select winner for RFQ ${rfqId} (status=${lastKnownStatus}, bids=${lastKnownBids}/${lastKnownMinBids})`,
       );
     }
     await new Promise((r) => setTimeout(r, 2000));
@@ -899,7 +907,10 @@ async function runOrchestrator(args: Map<string, string>): Promise<void> {
   let budgetBnb = Number.parseFloat(args.get("budget") || "1");
   let maxEtaMinutes = Number.parseInt(args.get("eta") || "45", 10);
   let minBids = Number.parseInt(args.get("min-bids") || "2", 10);
-  const rfqTimeoutMs = Number.parseInt(args.get("timeout-ms") || "60000", 10);
+  const rfqTimeoutMs = Number.parseInt(
+    args.get("timeout-ms") || process.env.DARK_MATTER_RFQ_TIMEOUT_MS || "180000",
+    10,
+  );
 
   if (interactive) {
     const rl = readline.createInterface({ input, output });
