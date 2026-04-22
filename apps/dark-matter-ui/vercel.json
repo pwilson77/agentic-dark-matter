@@ -1,6 +1,9 @@
 {
-  "installCommand": "cd ../.. && npm ci --include=dev && npm run build --workspace @adm/shared-core",
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
+  "installCommand": "cd ../.. && npm ci --include=dev && npm run build --workspace @adm/shared-core",
+  "buildCommand": "next build",
+  "outputDirectory": ".next",
   "env": {
     "DARK_MATTER_LOCAL_SOURCE": "chain",
     "DARK_MATTER_POOL_SOURCE": "local"
