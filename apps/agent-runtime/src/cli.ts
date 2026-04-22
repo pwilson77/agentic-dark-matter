@@ -871,6 +871,34 @@ async function waitForSelection(
   }
 }
 
+async function ensureRpcReachable(rpcUrl: string, timeoutMs = 10000): Promise<void> {
+  const started = Date.now();
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    try {
+      const response = await fetch(rpcUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "eth_blockNumber",
+          params: [],
+          id: 1,
+        }),
+      });
+      if (response.ok) return;
+    } catch {
+      // keep retrying until timeout
+    }
+    if (Date.now() - started > timeoutMs) {
+      throw new Error(
+        `RPC not reachable at ${rpcUrl}. If you started testnet agents (npm run demo:up testnet), use npm run demo:chat:testnet. If running local mode, start npm run demo:up first and wait for anvil to boot.`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+}
+
 async function markRfqAgreement(
   rfqId: string,
   agreementId: string,
@@ -901,6 +929,9 @@ async function runOrchestrator(args: Map<string, string>): Promise<void> {
   const transcriptSecret =
     process.env.DARK_MATTER_TRANSCRIPT_SECRET || "dev-dark-matter-secret";
   const networkLabel = process.env.DARK_MATTER_NETWORK || "anvil-local";
+
+  log("orchestrator", `Preflight RPC check: ${rpcUrl} (${networkLabel})`);
+  await ensureRpcReachable(rpcUrl);
 
   const interactive =
     args.get("interactive") === "true" ||
