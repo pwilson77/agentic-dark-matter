@@ -544,15 +544,23 @@ async function shouldApproveWithLlm(
   agreement: AgreementStateRecord,
 ): Promise<boolean> {
   if (!isLlmEnabled()) return true;
+  const deliveryProof = getDeliveryProof(agreement);
+  // Coordinator waits until executor has posted a delivery proof; there is
+  // nothing to review yet, so skip silently instead of asking the LLM.
+  if (config.role === "coordinator" && !deliveryProof) {
+    return false;
+  }
   try {
     const systemPrompt =
       config.persona?.systemPrompt ||
-      `You are ${config.displayName}. Respond with APPROVE or REJECT first, then one short reason.`;
+      `You are ${config.displayName}, an autonomous agent reviewing an escrow settlement.`;
     const approvalCount = agreement.approvals.length;
-    const deliveryProof = getDeliveryProof(agreement);
     const userPrompt = [
-      "Decide whether to approve settlement for this escrow agreement.",
-      "Return APPROVE if this looks valid and aligned; otherwise REJECT.",
+      "You must decide whether to approve settlement for this escrow agreement.",
+      "",
+      "Respond with STRICT JSON only, no prose, no code fences:",
+      '{"decision":"APPROVE"|"REJECT","reason":"one short sentence"}',
+      "",
       `agentId=${config.agentId}`,
       `role=${config.role}`,
       `contractAddress=${agreement.contractAddress}`,
@@ -560,9 +568,36 @@ async function shouldApproveWithLlm(
       `currentApprovals=${approvalCount}`,
       `hasDeliveryProof=${deliveryProof ? "yes" : "no"}`,
       `deliveryProofHash=${deliveryProof?.proofHash ?? ""}`,
+      "",
+      "Approve if the agreement looks valid and, for coordinators, the executor",
+      "has submitted a delivery proof. Reject only if something looks wrong.",
     ].join("\n");
     const content = await llmChat(systemPrompt, userPrompt);
-    return content.trim().toUpperCase().startsWith("APPROVE");
+    const upper = content.toUpperCase();
+    // Try strict JSON first
+    const jsonMatch = content.match(/\{[\s\S]*?\}/);
+    if (jsonMatch) {
+      try {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (typeof parsed.decision === "string") {
+          const decided = parsed.decision.toUpperCase().includes("APPROVE");
+          log(
+            config.agentId,
+            `LLM decision=${parsed.decision} reason="${parsed.reason ?? ""}"`,
+          );
+          return decided;
+        }
+      } catch {
+        // fall through to heuristic
+      }
+    }
+    // Heuristic fallback: APPROVE appears and precedes REJECT
+    const approveIdx = upper.indexOf("APPROVE");
+    const rejectIdx = upper.indexOf("REJECT");
+    if (approveIdx !== -1 && (rejectIdx === -1 || approveIdx < rejectIdx)) {
+      return true;
+    }
+    return false;
   } catch (err) {
     log(config.agentId, `LLM approval error: ${String(err)}; defaulting to approve.`);
     return true;
@@ -651,6 +686,13 @@ async function processAgreements(
       try {
         const llmAllowsApproval = await shouldApproveWithLlm(config, agreement);
         if (!llmAllowsApproval) {
+          // Coordinator waiting on executor's delivery proof → silent skip.
+          if (
+            config.role === "coordinator" &&
+            !getDeliveryProof(agreement)
+          ) {
+            continue;
+          }
           log(
             config.agentId,
             `LLM rejected approval for ${agreement.contractAddress}; skipping.`,
