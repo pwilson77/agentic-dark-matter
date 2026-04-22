@@ -1,107 +1,113 @@
-# Agentic Dark Matter Oracle
+# Agentic Dark Matter
 
-**Verifiable agent-to-agent commerce with escrowed settlement and MCP lifecycle parity.**
+> Verifiable agent-to-agent commerce — RFQ marketplace, signed negotiation envelopes, proof-gated escrow settlement, and on-chain lifecycle evidence on BNB Chain.
 
-**Supported networks:** anvil-local (`chainId=31337`), BNB testnet / Chapel (`chainId=97`)
+**Networks:** anvil-local (`chainId=31337`) · BNB testnet / Chapel (`chainId=97`)  
+**Dashboard:** http://localhost:3000/dashboard (local dev)
 
-**UI runtime:** http://127.0.0.1:3006 (local dev) \u00b7 http://127.0.0.1:3000 (`ui:dev:testnet`)
+## What's Built
 
-## Executive Summary
-
-Agentic Dark Matter Oracle provides a practical A2A execution path where two agents negotiate, run a competitive RFQ auction, execute escrow on-chain, and settle with deterministic lifecycle verbs.
-It combines a typed shared core, a runnable agent runtime, a demo-oriented operator UI with on-chain proof, and parity verifiers that enforce consistent MCP behavior across rails. Runs locally on anvil and on BNB testnet.
-
-## Overview
-
-- **Lifecycle core:** canonical create/approve/release/timeout semantics via shared MCP adapters.
-- **RFQ marketplace:** one coordinator (Agent A) posts a request-for-quote; multiple executors (Agents B, C, …) submit competing bids; the coordinator picks a winner before escrow deploys.
-- **LLM-driven decisioning (with deterministic fallback):** when `DARK_MATTER_LLM_ENABLED=true`, each agent uses an LLM (any OpenAI-compatible endpoint — OpenRouter/DeepSeek, OpenAI, local vLLM, etc.) to craft bid rationale, rank bids, and approve settlement. When LLM is disabled, a deterministic seeded scorer (price 35% / ETA 20% / reliability 25% / capability fit 20%) is used instead, so the demo is fully reproducible offline.
-- **Interactive orchestrator:** `npm run demo:chat` prompts the user for the task (objective, capability, budget, ETA, min bids) and posts a real RFQ on their behalf.
-- **Demo UI:** single-page narrative — hero + agents + RFQ leaderboard + on-chain proof ribbon + transcript timeline, with BscScan links for every tx.
-- **Observability and controls:** session API timeline, operator action endpoints (gated behind `?operator=1`), parity and runtime verification scripts.
+| Layer | What it does |
+|---|---|
+| **RFQ marketplace** | Agent A posts a task; Agents B and C compete with LLM-crafted bids; coordinator ranks and selects a winner |
+| **Signed negotiation envelopes** | Off-chain terms are committed as cryptographically-signed envelopes with nonce replay protection and delivery commitment binding |
+| **Policy gate** | Orchestrator validates the full envelope set (signatures, nonces, cross-signer commitment consistency) before any escrow deploys |
+| **Proof-gated escrow** | Custom Solidity contract requires Agent B to submit a `deliveryProofHash` on-chain before settlement can be approved or released |
+| **Split payout** | Release and timeout-claim both distribute 60/40 to agent wallets via on-chain bps |
+| **Operator dashboard** | Single-page UI with RFQ leaderboard, envelope evidence timeline, and 4-stop proof ribbon with BscScan tx links |
+| **LLM + deterministic fallback** | Any OpenAI-compatible endpoint drives bid rationale and selection; deterministic scorer (price 35% / ETA 20% / reliability 25% / fit 20%) makes the demo fully reproducible offline |
 
 ## Architecture
 
-```mermaid
-flowchart LR
-	USR[User via demo:chat]
-	OA[Orchestrator Mode]
-	SA[Agent A - Coordinator]
-	SB[Agent B - Executor]
-	SC2[Agent C - Executor]
-	ST[(Shared State\n/tmp/adm-agent-state.json)]
-
-	USR -->|objective + capability + budget| OA
-	OA -->|post RFQ| ST
-	SB -->|poll + LLM bid| ST
-	SC2 -->|poll + LLM bid| ST
-	SA -->|LLM rank bids + select winner| ST
-	OA -->|deploy escrow after selection| ST
-	SB -->|submit delivery proof + approve| ST
-	SA -->|approve + release| ST
-
-	OA -->|createAgreementViaMcp| SHC[shared-core]
-	SA -->|approveSettlementViaMcp\nreleaseViaMcp| SHC
-	SB -->|approveSettlementViaMcp| SHC
-
-	SHC -->|deploy/approve/release| CH[(Anvil/BSC Chain)]
-	CH -->|events + status| UI[dark-matter-ui /api/session]
-	UI -->|timeline + operator actions| OP[Operator Dashboard]
+```
+┌─────────────────────────────────────────────────────────┐
+│  apps/agent-runtime  (orchestrator + agents A/B/C)      │
+│  ┌──────────┐  RFQ + bid  ┌──────────┐  ┌──────────┐   │
+│  │ Agent A  │◄───────────►│ Agent B  │  │ Agent C  │   │
+│  │coordinator│            │ executor │  │ executor │   │
+│  └────┬─────┘             └────┬─────┘  └──────────┘   │
+│       │ select winner          │                        │
+│       └────────────────────────┘                        │
+│              │ signed negotiation envelopes              │
+│              │ policy gate (validateNegotiationEnvelopeSet)│
+│              ▼                                           │
+│  packages/shared-core  (lifecycle adapters + core logic) │
+│  ┌──────────────────────────────────────────────────┐   │
+│  │ negotiationEnvelope.ts  negotiation.ts           │   │
+│  │ lifecycle-mcp.ts        deploy/approve/release   │   │
+│  └──────────────────┬───────────────────────────────┘   │
+└─────────────────────┼───────────────────────────────────┘
+                       │ deploy + txs
+                       ▼
+         contracts/src/DarkMatterEscrow.sol
+         (proof-gated, 60/40 split payout)
+                       │ events + state
+                       ▼
+         apps/dark-matter-ui  /api/session
+         (envelope evidence · proof ribbon · timeline)
 ```
 
-The architecture is split into three boundaries so behavior is predictable and auditable:
+**Three boundaries:**
 
-- **Execution boundary (agent-runtime):** long-running workers and orchestrator mode drive when lifecycle actions are attempted.
-- **Protocol boundary (shared-core):** lifecycle adapters and rail resolvers define how actions are executed and verified.
-- **Evidence boundary (chain + session timeline):** chain state provides settlement truth while session events provide operator-facing traceability.
+- **Execution boundary** (`apps/agent-runtime`) — long-running agent workers and orchestrator drive lifecycle actions.
+- **Protocol boundary** (`packages/shared-core`) — envelope validation, lifecycle adapters, and rail resolvers define _how_ actions execute.
+- **Evidence boundary** (chain + UI session timeline) — chain state is settlement truth; session events give operator-facing traceability.
 
-End-to-end lifecycle sequence:
+**End-to-end flow:**
 
-1. User types the task into `demo:chat` (objective, capability, budget, ETA, min bids).
-2. Orchestrator posts an RFQ record into shared state on behalf of Agent A.
-3. Executor agents (B, C, …) poll, gate by capability, compute a quote/ETA, and use an LLM to write bid rationale. They write their bids into shared state.
-4. Agent A (coordinator) waits for `minBids`, then uses an LLM to rank the bids and select a winner with strict-JSON reasoning. A deterministic scorer is used if LLM is disabled.
-5. Orchestrator negotiates final terms with the winner, deploys the escrow contract, and registers the agreement artifact.
-6. Executor submits a delivery proof hash, then both parties approve settlement (each approval guarded by an LLM review that checks for a valid proof).
-7. Coordinator releases escrow only after both approvals and a valid proof are present.
-8. Chain outcomes and timeline events are surfaced through the session API for the operator UI.
+1. User types a task into `demo:chat` (objective, capability, budget, ETA, min bids).
+2. Orchestrator posts an RFQ into shared state on behalf of Agent A.
+3. Executor agents poll, gate by capability, and call an LLM to write bid rationale. Both write bids into shared state.
+4. Agent A waits for `minBids`, calls its LLM to rank and select a winner (deterministic fallback if no LLM).
+5. Orchestrator and the winner exchange **signed negotiation envelopes**. The policy gate validates signatures, nonces, and delivery commitment binding before proceeding.
+6. Escrow contract is deployed. Agent B submits a `deliveryProofHash` on-chain.
+7. Both agents approve settlement (approval requires a valid proof to be present).
+8. Coordinator releases escrow. UI shows the completed proof ribbon with BscScan tx links.
 
-The orchestrator is a control mode in `@adm/agent-runtime`, not a fourth autonomous agent role.
+## Key Implementations
 
-Why this structure works:
+### Signed Negotiation Envelopes (`packages/shared-core/src/negotiationEnvelope.ts`)
 
-- **Deterministic semantics:** every execution mode calls the same lifecycle verbs.
-- **Composable operations:** operator controls layer on top of lifecycle APIs without forking protocol logic.
-- **Process resilience:** agent restarts do not lose settlement truth because state and receipts are externalized.
+Off-chain negotiation terms are signed with ethers v6 and committed before any on-chain action. The policy gate (`validateNegotiationEnvelopeSet`) enforces:
 
-- **Shared core (`@adm/shared-core`):** deploy, settlement, lifecycle MCP adapter, rail resolver, and rail adapters.
-- **Agent runtime (`@adm/agent-runtime`):** long-running agent loop plus orchestrator mode.
-- **UI/API (`@adm/dark-matter-ui`):** local/prod/mock pool views, timeline projection, operator actions.
-- **Contracts:** escrow lifecycle contracts built and tested with Foundry.
+- **Signature validity** — every envelope is verified against its declared signer
+- **Nonce replay protection** — nonces are globally tracked; replays are rejected
+- **Delivery commitment binding** — each envelope carries a deterministic SHA-256 `deliveryCommitmentHash` (agreementId + objective + participants + termsHash)
+- **Cross-signer consistency** — all signers must commit to the same `deliveryCommitmentHash`
+- **Signer coverage** — every expected participant must have signed
 
-## Why This Matters
+Startup policy profile logged by the orchestrator:
+```
+Envelope policy profile: strict=on, replayProtection=on, signatureVerification=on, commitmentBinding=on
+```
 
-**A2A settlement with proof:** agents can independently approve and release escrow with on-chain transaction evidence.
+Run negative-path acceptance tests:
+```bash
+npm run verify:envelopes
+# happy path ✓ · tampered sig ✓ · replayed nonce ✓ · inconsistent commitment ✓
+```
 
-**Deterministic lifecycle:** parity checks enforce a stable verb surface for tool consumers.
+### Proof-Gated Escrow (`contracts/src/DarkMatterEscrow.sol`)
 
-**Demo-to-production bridge:** same core verbs run in local deterministic mode and hosted/testnet mode.
+- Agent B calls `submitDeliveryProof(bytes32)` on-chain before settlement approval is accepted
+- `release()` reverts if no proof has been submitted
+- 60/40 bps split distributed to agent wallet addresses on both `release()` and `claimAfterTimeout()`
+- 14/14 Foundry tests passing (proof requirement, split distribution, timeout behavior)
 
-## Canonical Lifecycle Verbs
+```bash
+cd contracts && forge test
+# Suite result: ok. 14 passed; 0 failed; 0 skipped
+```
 
-The current parity surface validates these verbs:
+### RFQ Marketplace (`packages/shared-core/src/negotiation.ts`)
 
-| Verb                          | Purpose                                                    |
-| ----------------------------- | ---------------------------------------------------------- |
-| `create`                      | Deploy/register agreement artifact and settlement contract |
-| `approve_settlement`          | Agent signer approves settlement                           |
-| `release`                     | Coordinator releases escrow after approvals                |
-| `auto_claim_timeout`          | Timeout-based claim path                                   |
-| `inspect_status`              | Read settlement/pool status                                |
-| `inspect_timeline`            | Read lifecycle timeline                                    |
-| `retry_step`                  | Operator retry control                                     |
-| `force_reveal_public_summary` | Operator public-summary reveal control                     |
-| `escalate_dispute`            | Operator dispute escalation                                |
+Deterministic scorer with weights: price 35% / ETA 20% / reliability 25% / capability fit 20%. Ties resolved by score → ETA → price → id. LLM override via any OpenAI-compatible endpoint.
+
+### UI Evidence (`apps/dark-matter-ui`)
+
+- Envelope timeline event shows signers, verified/total count, nonce uniqueness ratio, commitment consistency
+- 4-stop proof ribbon: `deploy → approve A → approve B → release` with BscScan links
+- Operator controls at `/?operator=1`
 
 ## Getting Started
 
@@ -479,67 +485,6 @@ RFQ auction engine:
 
 ## Roadmap
 
-- **Agent SDK extraction**
-  - Promote runtime orchestration into a reusable `@adm/agent-sdk`
-  - Add import-friendly APIs for external agent frameworks
-
-- **Evidence-gated settlement** — bind `release()` to a deliverable attestation, not just dual approval.
-
-  **Today.** `release()` gates only on `agentAApproved && agentBApproved`. The chain verifies _agreement_, not _work_. Off-chain exchange between `create` and `approveSettlement` is opaque to the contract.
-
-  **Target.** Agent B (the worker) commits a `proofHash` on-chain before their approval counts; Agent A (the payer) pins the policy that hash must match at `create` time; `release()` refuses to pay out unless the committed proof satisfies the pinned policy.
-
-  **Implementation plan**
-  1. **Contract surface** ([contracts/src/DarkMatterEscrow.sol](contracts/src/DarkMatterEscrow.sol))
-     - Add immutable `bytes32 public proofPolicyHash` set in the constructor (hash of the agreed deliverable schema: expected artifact hash, signer set, schema version). Zero means "legacy mode, no proof required" for backward compatibility with existing pools.
-     - Add `bytes32 public submittedProofHash` and `address public proofSubmitter` state.
-     - New function `submitProof(bytes32 proofHash)` — only callable by `agentB`, only once, reverts if `proofHash == 0` or policy hash is zero. Emits `ProofSubmitted(agentB, proofHash)` and `PoolStatusChanged(poolId, "proof-submitted", msg.sender)`.
-     - Modify `approveSettlement()`: if `proofPolicyHash != 0`, agent B's approval reverts unless `submittedProofHash != 0`. Agent A's approval is unchanged (A attests the proof matches off-chain).
-     - Modify `release()`: if `proofPolicyHash != 0`, revert when `submittedProofHash == 0`. (Dual-approval already implies A accepted the hash.)
-     - New errors: `ProofRequired`, `ProofAlreadySubmitted`, `PolicyNotSet`.
-     - Timeout path (`claimAfterTimeout`) is unchanged — timeout is the dispute escape hatch by design.
-
-  2. **Shared-core types** ([packages/shared-core/src/types.ts](packages/shared-core/src/types.ts))
-     - Extend `AgreementArtifact` with `proofPolicy?: { schemaVersion: string; deliverableHashAlgorithm: "sha256" | "keccak256"; signerSet?: Address[] }` and a derived `proofPolicyHash: Hex`.
-     - Add lifecycle event type `ProofSubmittedEvent` surfaced via `PoolStatusChanged("proof-submitted")`.
-
-  3. **SDK verb** ([packages/agent-sdk/src/client.ts](packages/agent-sdk/src/client.ts))
-     - Add `submitProof({ contractAddress, signerPrivateKey, proofHash, sourceMaterial? })` — validates `^0x[a-fA-F0-9]{64}$`, optionally hashes a local file/buffer to derive `proofHash`.
-     - `runStandardLifecycle` gains an optional `proof: { hash: Hex } | { computeFrom: string }` param; when present, it fires `submitProof` after `createAgreement` and before `approveSettlement` for agent B.
-     - New error code `PROOF_POLICY_VIOLATION` on `AgentSdkError`.
-
-  4. **MCP / lifecycle adapter** ([packages/shared-core/src/lifecycle-mcp.ts](packages/shared-core/src/lifecycle-mcp.ts) equivalents)
-     - Add canonical verb `submit_proof` to the lifecycle table. Update [LIFECYCLE_VERB_PARITY_CHECKLIST.md](LIFECYCLE_VERB_PARITY_CHECKLIST.md) with EVM + simulated-readonly rows.
-     - Simulated rail emits a synthetic proof event so parity verifier stays green.
-
-  5. **UI + session API** ([apps/dark-matter-ui/app/page.tsx](apps/dark-matter-ui/app/page.tsx), [apps/dark-matter-ui/app/api/session/route.ts](apps/dark-matter-ui/app/api/session/route.ts))
-     - Proof ribbon grows from 4 stops to 5: `deploy → proof → approve A → approve B → release`. Each stop keeps its BscScan tx link.
-     - Session state adds `proofHash` and `proofTxHash` fields; `PoolStatusChanged("proof-submitted")` logs are mapped to the new stop.
-
-  6. **Agent runtime** ([apps/agent-runtime/src/](apps/agent-runtime/src))
-     - Agent B computes `sha256` / `keccak256` over its deliverable artifact (e.g., the RFQ response payload, plus any attached file) before approving.
-     - Config: `proofMode: "required" | "optional" | "legacy"` per agent.
-
-  7. **Tests + verifiers**
-     - Foundry: add `DarkMatterEscrow.t.sol` cases — `release reverts without proof when policy set`, `agent B approve reverts without proof`, `timeout path still works with missing proof`, `double submit reverts`, `legacy mode (policyHash=0) keeps old behavior`.
-     - [scripts/verify-agent-sdk.mjs](scripts/verify-agent-sdk.mjs): extend the happy path to include `submit_proof` and assert the event.
-     - [scripts/verify-mcp-parity.mjs](scripts/verify-mcp-parity.mjs): add `submit_proof` to the matrix with rail-aware expectations.
-
-  8. **Migration**
-     - Existing deployed pools keep working (they were created with `proofPolicyHash = 0`).
-     - New pools opt in by passing a non-zero `proofPolicyHash` at `create`. Add a feature flag `DARK_MATTER_REQUIRE_PROOF=1` to the demo orchestrator and `agent:a:testnet` / `agent:b:testnet` scripts.
-
-  **What this does NOT do** (out of scope for this item)
-  - No oracle that decides whether the deliverable is _correct_ — the chain still enforces the _commitment_, humans/policy decide correctness. "Automatic deliverable validation" belongs to a follow-on ZK/oracle roadmap item.
-  - No multi-signer proof. Single-signer (agent B) commit is the minimum viable evidence gate; multi-signer is additive.
-
-- **Registry and reputation**
-  - Add agent registry endpoint and performance metrics
-  - Track completion rate, dispute rate, and settlement latency
-
-- **Operational integrations**
-  - Add lifecycle webhooks and recurring task streams
-  - Add timeout-claim demo scenario as a first-class mode
-
-- **Rail expansion**
-  - Keep parity guarantees while replacing simulated secondary rail with production write semantics
+- **Richer private coordination rails** — encrypted off-chain negotiation with verifiable transcripts
+- **Agent identity and reputation** — registry-backed agent identity, completion rate, dispute rate, settlement latency
+- **Operational integrations** — lifecycle webhooks, recurring task streams, hosted agent workers (Fly.io/Railway) with shared Redis state so the Vercel dashboard can reflect live agents
