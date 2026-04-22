@@ -757,6 +757,39 @@ interface LocalOnChainPool {
   agentBApprovalActor: string;
 }
 
+interface RuntimeStateBid {
+  bidId?: string;
+  agentId?: string;
+  agentDisplayName?: string;
+  agentAddress?: string;
+  capabilities?: string[];
+  quoteBnb?: number;
+  etaMinutes?: number;
+  rationale?: string;
+  submittedAt?: string;
+}
+
+interface RuntimeStateRfq {
+  rfqId?: string;
+  capability?: string;
+  secondaryCapabilities?: string[];
+  objective?: string;
+  budgetBnb?: number;
+  maxEtaMinutes?: number;
+  postedAt?: string;
+  minBids?: number;
+  status?: string;
+  bids?: RuntimeStateBid[];
+  selection?: {
+    winnerBidId?: string;
+    winnerAgentId?: string;
+    winnerAddress?: string;
+    reasoning?: string;
+    decidedAt?: string;
+  };
+  agreementId?: string;
+}
+
 interface RuntimeStateAgreement {
   agreementId?: string;
   contractAddress?: string;
@@ -770,6 +803,25 @@ interface RuntimeStateAgreement {
   meta?: {
     agreementHash?: string;
     transcriptHash?: string;
+    rfqId?: string;
+    winner?: {
+      agentId?: string;
+      displayName?: string;
+      reasoning?: string;
+      quoteBnb?: number;
+      etaMinutes?: number;
+    };
+    bids?: Array<{
+      agentId?: string;
+      quoteBnb?: number;
+      etaMinutes?: number;
+      rationale?: string;
+    }>;
+    deliveryProof?: {
+      proofHash?: string;
+      submittedAt?: string;
+    };
+    // legacy shape — kept for backward compat with old fixtures
     rfq?: {
       selected?: {
         id?: string;
@@ -1068,13 +1120,17 @@ async function loadLocalPoolsFromStateFile(): Promise<PoolItem[]> {
 
   const parsed = (() => {
     try {
-      return JSON.parse(raw) as { agreements?: RuntimeStateAgreement[] };
+      return JSON.parse(raw) as {
+        agreements?: RuntimeStateAgreement[];
+        rfqRequests?: RuntimeStateRfq[];
+      };
     } catch {
-      return { agreements: [] };
+      return { agreements: [], rfqRequests: [] };
     }
   })();
 
   const agreements = (parsed.agreements || []).slice().reverse();
+  const rfqRequests = parsed.rfqRequests || [];
   if (agreements.length === 0) return [];
 
   return agreements
@@ -1092,8 +1148,32 @@ async function loadLocalPoolsFromStateFile(): Promise<PoolItem[]> {
 
       const progress = progressFromStatus(status);
       const shortId = (agreement.agreementId || contractAddress).slice(0, 10);
+
+      // Prefer new shape (meta.winner/meta.bids), fall back to legacy meta.rfq.selected
+      const winner = agreement.meta?.winner;
+      const legacySelected = agreement.meta?.rfq?.selected;
       const selectedName =
-        agreement.meta?.rfq?.selected?.displayName || "Agent B";
+        winner?.displayName ||
+        legacySelected?.displayName ||
+        "Counterparty";
+      const selectedQuoteBnb = Number(
+        winner?.quoteBnb ?? legacySelected?.quoteBnb ?? 0,
+      );
+      const selectedEtaMinutes = Number(
+        winner?.etaMinutes ?? legacySelected?.etaMinutes ?? 0,
+      );
+      const selectedReasoning =
+        winner?.reasoning || "Selected by RFQ scoring";
+
+      // Look up matching RFQ for richer metadata
+      const linkedRfq = rfqRequests.find(
+        (r) => r.agreementId === agreement.agreementId,
+      );
+      const objective = linkedRfq?.objective;
+      const capabilityLabel =
+        linkedRfq?.capability ||
+        (agreement.meta?.bids || [])[0]?.agentId ||
+        "rfq";
 
       const agentA = String(agreement.agentA || "");
       const agentB = String(agreement.agentB || "");
@@ -1101,13 +1181,93 @@ async function loadLocalPoolsFromStateFile(): Promise<PoolItem[]> {
       const agentBLower = agentB.toLowerCase();
       const approveTxHashes = agreement.approveTxHashes || {};
 
+      // Build timeline from actual RFQ + approvals + release
+      const timeline: TimelineEvent[] = [];
+      if (linkedRfq) {
+        timeline.push({
+          id: `${shortId}-rfq-posted`,
+          at: linkedRfq.postedAt || agreement.createdAt || "recent",
+          title: "RFQ posted",
+          detail: `${linkedRfq.capability || "task"} — budget ≤${linkedRfq.budgetBnb ?? "?"} BNB, ETA ≤${linkedRfq.maxEtaMinutes ?? "?"}m`,
+          status: "info",
+        });
+        for (const bid of linkedRfq.bids || []) {
+          timeline.push({
+            id: `${shortId}-bid-${bid.bidId || bid.agentId}`,
+            at: bid.submittedAt || "recent",
+            title: `${bid.agentDisplayName || bid.agentId || "Bidder"} submitted bid`,
+            detail: `${bid.quoteBnb ?? "?"} BNB · ETA ${bid.etaMinutes ?? "?"}m — ${bid.rationale || ""}`,
+            status: "info",
+          });
+        }
+        if (linkedRfq.selection) {
+          timeline.push({
+            id: `${shortId}-selection`,
+            at: linkedRfq.selection.decidedAt || "recent",
+            title: "Winner selected",
+            detail: `${selectedName} — ${linkedRfq.selection.reasoning || selectedReasoning}`,
+            status: "ok",
+          });
+        }
+      }
+      timeline.push({
+        id: `${shortId}-escrow-deployed`,
+        at: agreement.createdAt || "recent",
+        title: "Escrow deployed",
+        detail: `Contract ${contractAddress} · ${selectedQuoteBnb} BNB locked`,
+        status: "ok",
+      });
+      for (const [addr, tx] of Object.entries(approveTxHashes)) {
+        const who =
+          addr.toLowerCase() === agentALower
+            ? "Agent A"
+            : addr.toLowerCase() === agentBLower
+              ? selectedName
+              : addr.slice(0, 10);
+        timeline.push({
+          id: `${shortId}-approve-${addr}`,
+          at: "recent",
+          title: `${who} approved`,
+          detail: `tx ${String(tx).slice(0, 14)}…`,
+          status: "ok",
+        });
+      }
+      if (releaseTxHash) {
+        timeline.push({
+          id: `${shortId}-released`,
+          at: "recent",
+          title: "Escrow released",
+          detail: `release tx ${releaseTxHash.slice(0, 14)}…`,
+          status: "ok",
+        });
+      }
+
+      // ranked candidates from all bids
+      const rankedCandidates = (linkedRfq?.bids || [])
+        .slice()
+        .sort((a, b) => (a.quoteBnb ?? 0) - (b.quoteBnb ?? 0))
+        .map((bid, i) => ({
+          rank: i + 1,
+          agent: bid.agentDisplayName || bid.agentId || "candidate",
+          score: Number(legacySelected?.score || 88),
+          quoteBnb: Number(bid.quoteBnb ?? 0),
+          etaMinutes: Number(bid.etaMinutes ?? 0),
+          rationale: bid.rationale || "",
+        }));
+
+      const poolName = objective
+        ? `Negotiated: ${objective.length > 70 ? objective.slice(0, 67) + "..." : objective}`
+        : `Agreement ${agreement.agreementId || shortId}`;
+
       return {
         id: `state-${index + 1}-${shortId}`,
-        name: `Agreement ${agreement.agreementId || shortId}`,
+        name: poolName,
         status,
-        strategy: "State-file projection for local/testnet runtime",
+        strategy: objective
+          ? "RFQ-driven agreement from local runtime"
+          : "State-file projection for local/testnet runtime",
         network: process.env.DARK_MATTER_NETWORK || "bsc-testnet",
-        capability: "rfq + settlement approvals",
+        capability: String(capabilityLabel),
         updatedAt: agreement.createdAt || new Date().toISOString(),
         progress,
         discoveredAgents: [
@@ -1115,27 +1275,33 @@ async function loadLocalPoolsFromStateFile(): Promise<PoolItem[]> {
             agentId: index * 2 + 1,
             name: "Agent A",
             wallet: agentA || "0x0000000000000000000000000000000000000000",
-            capabilities: ["liquidity provision", "treasury setup"],
+            capabilities: ["coordinator", "treasury"],
             fitScore: 90,
           },
           {
             agentId: index * 2 + 2,
             name: selectedName,
             wallet: agentB || "0x0000000000000000000000000000000000000000",
-            capabilities: ["operations", "execution"],
+            capabilities:
+              (linkedRfq?.bids || []).find(
+                (b) => b.agentAddress?.toLowerCase() === agentBLower,
+              )?.capabilities || ["executor"],
             fitScore: 88,
           },
         ],
-        rankedCandidates: [
-          {
-            rank: 1,
-            agent: selectedName,
-            score: Number(agreement.meta?.rfq?.selected?.score || 88),
-            quoteBnb: Number(agreement.meta?.rfq?.selected?.quoteBnb || 0),
-            etaMinutes: Number(agreement.meta?.rfq?.selected?.etaMinutes || 30),
-            rationale: "Selected by RFQ scoring",
-          },
-        ],
+        rankedCandidates:
+          rankedCandidates.length > 0
+            ? rankedCandidates
+            : [
+                {
+                  rank: 1,
+                  agent: selectedName,
+                  score: Number(legacySelected?.score || 88),
+                  quoteBnb: selectedQuoteBnb,
+                  etaMinutes: selectedEtaMinutes,
+                  rationale: selectedReasoning,
+                },
+              ],
         settlement: {
           agreementHash: String(
             agreement.meta?.agreementHash || agreement.agreementId || "",
@@ -1144,22 +1310,14 @@ async function loadLocalPoolsFromStateFile(): Promise<PoolItem[]> {
           releaseTxHash,
           transcriptHash: String(agreement.meta?.transcriptHash || ""),
           released: !!releaseTxHash,
-          escrowBnb: Number(agreement.meta?.rfq?.selected?.quoteBnb || 0),
+          escrowBnb: selectedQuoteBnb,
           agentAApprovalTxHash: approveTxHashes[agentALower] || "",
           agentBApprovalTxHash: approveTxHashes[agentBLower] || "",
           agentAApprovalBlockNumber: 0,
           agentBApprovalBlockNumber: 0,
           agentBApprovalActor: agentBLower,
         },
-        timeline: [
-          {
-            id: `state-${shortId}-created`,
-            at: agreement.createdAt || "recent",
-            title: "Agreement loaded from runtime state",
-            detail: `Status: ${agreement.status || status}`,
-            status: "ok",
-          },
-        ],
+        timeline,
       } satisfies PoolItem;
     });
 }
@@ -1195,12 +1353,26 @@ export async function GET(request: Request) {
       const chatTimeline = await loadChatTimelineEvents();
       const rfqTimeline = await loadRfqTimelineEvents();
       const systemTimeline = await loadSystemTimelineEvents();
-      const negotiatedTitle = negotiatedPoolTitleFromTimeline(chatTimeline);
-      if (
+      const hasRichStateTimeline = (pools[0].timeline?.length || 0) >= 3;
+      // If the state-file timeline already has real content (new RFQ flow),
+      // don't merge in the legacy chat/rfq transcripts or override the name.
+      if (hasRichStateTimeline) {
+        // Append only operator-action events from system timeline (still useful)
+        const operatorOnly = systemTimeline.filter(
+          (e) => e.actionResponse !== undefined,
+        );
+        if (operatorOnly.length > 0) {
+          pools[0] = {
+            ...pools[0],
+            timeline: [...pools[0].timeline, ...operatorOnly],
+          };
+        }
+      } else if (
         chatTimeline.length > 0 ||
         rfqTimeline.length > 0 ||
         systemTimeline.length > 0
       ) {
+        const negotiatedTitle = negotiatedPoolTitleFromTimeline(chatTimeline);
         pools[0] = {
           ...pools[0],
           name: negotiatedTitle || pools[0].name,

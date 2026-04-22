@@ -464,8 +464,6 @@ export default function Page() {
           isLoading={isLoading}
         />
 
-        <AgentLogsPanel />
-
         {activePool && (
           <>
             <AgentDealRow pool={activePool} />

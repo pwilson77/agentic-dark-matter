@@ -33,16 +33,15 @@ if (!SKIP_LLM && existsSync(envFile)) {
   }
 }
 
-// Clear stale state + logs
+// Clear stale state + logs + old session transcript file
 const stateFile = "/tmp/adm-agent-state.json";
 const logFile = "/tmp/adm-agent-logs.jsonl";
-if (existsSync(stateFile)) {
-  unlinkSync(stateFile);
-  console.log(`[demo-up] cleared stale ${stateFile}`);
-}
-if (existsSync(logFile)) {
-  unlinkSync(logFile);
-  console.log(`[demo-up] cleared stale ${logFile}`);
+const sessionFile = "/tmp/agentic-dark-matter-session.jsonl";
+for (const f of [stateFile, logFile, sessionFile]) {
+  if (existsSync(f)) {
+    unlinkSync(f);
+    console.log(`[demo-up] cleared stale ${f}`);
+  }
 }
 
 // ---- colors ----
