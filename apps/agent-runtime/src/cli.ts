@@ -2,6 +2,8 @@ import { existsSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import readline from "node:readline/promises";
+import { stdin as input, stdout as output } from "node:process";
 import { parseEther } from "ethers";
 import {
   approveSettlementViaMcp,
@@ -829,22 +831,64 @@ async function runOrchestrator(args: Map<string, string>): Promise<void> {
     process.env.DARK_MATTER_TRANSCRIPT_SECRET || "dev-dark-matter-secret";
   const networkLabel = process.env.DARK_MATTER_NETWORK || "anvil-local";
 
-  const capability = args.get("capability") || "community-raids";
-  const secondaryRaw = args.get("secondary") || "telegram-ops,discord-ops";
-  const secondaryCapabilities = secondaryRaw
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const objective =
+  const interactive =
+    args.get("interactive") === "true" ||
+    args.get("i") === "true" ||
+    (input.isTTY && !args.has("capability"));
+
+  let capability = args.get("capability") || "community-raids";
+  let secondaryRaw = args.get("secondary") || "telegram-ops,discord-ops";
+  let objective =
     args.get("objective") ||
     "Coordinate 24h community raid across Telegram and Discord for launch week.";
-  const budgetBnb = Number.parseFloat(args.get("budget") || "1");
-  const maxEtaMinutes = Number.parseInt(args.get("eta") || "45", 10);
-  const minBids = Number.parseInt(args.get("min-bids") || "2", 10);
+  let budgetBnb = Number.parseFloat(args.get("budget") || "1");
+  let maxEtaMinutes = Number.parseInt(args.get("eta") || "45", 10);
+  let minBids = Number.parseInt(args.get("min-bids") || "2", 10);
   const rfqTimeoutMs = Number.parseInt(
     args.get("timeout-ms") || "60000",
     10,
   );
+
+  if (interactive) {
+    const rl = readline.createInterface({ input, output });
+    const ask = async (q: string, def: string): Promise<string> => {
+      const answer = (await rl.question(`${q} [${def}]: `)).trim();
+      return answer.length > 0 ? answer : def;
+    };
+    console.log("");
+    console.log("═══════════════════════════════════════════════════════════");
+    console.log("  ORCHESTRATOR — post a task to the agent marketplace");
+    console.log("═══════════════════════════════════════════════════════════");
+    console.log("  Press Enter to accept the default in [brackets].");
+    console.log("");
+    objective = await ask("What do you need done?", objective);
+    capability = await ask(
+      "Primary capability required (e.g. community-raids, telegram-ops, discord-ops, growth-analytics)",
+      capability,
+    );
+    secondaryRaw = await ask(
+      "Secondary capabilities (comma-separated, optional)",
+      secondaryRaw,
+    );
+    budgetBnb = Number.parseFloat(
+      await ask("Max budget in BNB", String(budgetBnb)),
+    );
+    maxEtaMinutes = Number.parseInt(
+      await ask("Max ETA in minutes", String(maxEtaMinutes)),
+      10,
+    );
+    minBids = Number.parseInt(
+      await ask("Minimum bids required before Agent A selects", String(minBids)),
+      10,
+    );
+    rl.close();
+    console.log("");
+  }
+
+  const secondaryCapabilities = secondaryRaw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   log("orchestrator", `User task intent received:`);
   log("orchestrator", `  capability=${capability}`);
