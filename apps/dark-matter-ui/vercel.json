@@ -1,6 +1,6 @@
 {
-  "buildCommand": "cd ../.. && npm ci && npm run build --workspace @adm/shared-core && npm run build --workspace @adm/dark-matter-ui",
-  "installCommand": "echo 'install handled by buildCommand'",
+  "installCommand": "cd ../.. && npm ci --include=dev",
+  "buildCommand": "cd ../.. && npm run build --workspace @adm/shared-core && npm run build --workspace @adm/dark-matter-ui",
   "framework": "nextjs",
   "env": {
     "DARK_MATTER_LOCAL_SOURCE": "chain",
