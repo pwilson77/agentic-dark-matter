@@ -19,32 +19,41 @@
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────┐
-│  apps/agent-runtime  (orchestrator + agents A/B/C)      │
-│  ┌──────────┐  RFQ + bid  ┌──────────┐  ┌──────────┐   │
-│  │ Agent A  │◄───────────►│ Agent B  │  │ Agent C  │   │
-│  │coordinator│            │ executor │  │ executor │   │
-│  └────┬─────┘             └────┬─────┘  └──────────┘   │
-│       │ select winner          │                        │
-│       └────────────────────────┘                        │
-│              │ signed negotiation envelopes              │
-│              │ policy gate (validateNegotiationEnvelopeSet)│
-│              ▼                                           │
-│  packages/shared-core  (lifecycle adapters + core logic) │
-│  ┌──────────────────────────────────────────────────┐   │
-│  │ negotiationEnvelope.ts  negotiation.ts           │   │
-│  │ lifecycle-mcp.ts        deploy/approve/release   │   │
-│  └──────────────────┬───────────────────────────────┘   │
-└─────────────────────┼───────────────────────────────────┘
-                       │ deploy + txs
-                       ▼
-         contracts/src/DarkMatterEscrow.sol
-         (proof-gated, 60/40 split payout)
-                       │ events + state
-                       ▼
-         apps/dark-matter-ui  /api/session
-         (envelope evidence · proof ribbon · timeline)
+```mermaid
+flowchart TD
+    USER([User / demo:chat]) -->|objective · capability · budget| ORC
+
+    subgraph runtime["apps/agent-runtime"]
+        ORC[Orchestrator]
+        AA[Agent A\ncoordinator]
+        AB[Agent B\nexecutor]
+        AC[Agent C\nexecutor]
+        ORC -->|post RFQ| AA
+        AB -->|LLM bid| AA
+        AC -->|LLM bid| AA
+        AA -->|select winner| ORC
+    end
+
+    ORC -->|signed negotiation envelopes| GATE
+
+    subgraph core["packages/shared-core"]
+        GATE["Policy gate\nvalidateNegotiationEnvelopeSet\n(sig · nonce · commitment · coverage)"]
+        LIFECYCLE[lifecycle adapters\ndeploy / approve / release]
+        GATE --> LIFECYCLE
+    end
+
+    LIFECYCLE -->|deploy + txs| CONTRACT
+
+    subgraph chain["contracts/"]
+        CONTRACT["DarkMatterEscrow.sol\nproof-gated · 60/40 split"]
+    end
+
+    AB -->|submitDeliveryProof| CONTRACT
+    CONTRACT -->|events + state| UI
+
+    subgraph ui["apps/dark-matter-ui"]
+        UI["/api/session\nenvelope evidence · proof ribbon · timeline"]
+    end
 ```
 
 **Three boundaries:**
