@@ -182,7 +182,9 @@ function getPrivateKeyFromEnv(config: AgentConfig): string {
   return value;
 }
 
-function getDeliveryProof(agreement: AgreementStateRecord): DeliveryProof | null {
+function getDeliveryProof(
+  agreement: AgreementStateRecord,
+): DeliveryProof | null {
   const proof = (agreement.meta as { deliveryProof?: unknown } | undefined)
     ?.deliveryProof;
   if (!proof || typeof proof !== "object") return null;
@@ -232,7 +234,9 @@ function buildDeliveryProof(
     transcriptHash ? `transcriptHash:${transcriptHash}` : "",
   ].filter(Boolean);
 
-  const proofHash = createHash("sha256").update(evidence.join("|"), "utf8").digest("hex");
+  const proofHash = createHash("sha256")
+    .update(evidence.join("|"), "utf8")
+    .digest("hex");
   return {
     submittedBy: config.wallet.address.toLowerCase(),
     submittedAt,
