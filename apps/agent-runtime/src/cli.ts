@@ -111,6 +111,11 @@ const DEFAULT_STATE_FILE = "/tmp/adm-agent-state.json";
 const DEFAULT_RPC_URL = "http://127.0.0.1:8545";
 const DEFAULT_CHAIN_ID = 31337;
 const DEFAULT_TREASURY = "0x1111222233334444555566667777888899990000";
+const BSC_TESTNET_FALLBACK_RPCS = [
+  "https://bsc-testnet-dataseed.bnbchain.org",
+  "https://bsc-testnet.bnbchain.org",
+  "https://bsc-prebsc-dataseed.bnbchain.org",
+];
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -871,7 +876,54 @@ async function waitForSelection(
   }
 }
 
-async function ensureRpcReachable(rpcUrl: string, timeoutMs = 10000): Promise<void> {
+function parseRpcCandidates(...sources: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const source of sources) {
+    for (const part of source.split(",")) {
+      const url = part.trim();
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      out.push(url);
+    }
+  }
+  return out;
+}
+
+async function ensureRpcReachable(candidates: string[], timeoutMs = 10000): Promise<string> {
+  if (candidates.length === 0) {
+    throw new Error("No RPC candidates configured.");
+  }
+  const deadline = Date.now() + timeoutMs;
+  for (const rpcUrl of candidates) {
+    // Retry each candidate for a short slice of the overall timeout budget.
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      try {
+        const response = await fetch(rpcUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            method: "eth_blockNumber",
+            params: [],
+            id: 1,
+          }),
+        });
+        if (response.ok) return rpcUrl;
+      } catch {
+        // keep retrying until this candidate times out
+      }
+      if (Date.now() > deadline) break;
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+  }
+  throw new Error(
+    `RPC not reachable. Tried: ${candidates.join(", ")}. If you started testnet agents (npm run demo:up testnet), use npm run demo:chat:testnet. If running local mode, start npm run demo:up first and wait for anvil to boot.`,
+  );
+}
+
+async function ensureSingleRpcReachable(rpcUrl: string, timeoutMs = 10000): Promise<void> {
   const started = Date.now();
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -912,7 +964,7 @@ async function markRfqAgreement(
 }
 
 async function runOrchestrator(args: Map<string, string>): Promise<void> {
-  const rpcUrl = process.env.DARK_MATTER_RPC_URL || DEFAULT_RPC_URL;
+  let rpcUrl = process.env.DARK_MATTER_RPC_URL || DEFAULT_RPC_URL;
   const chainId = Number.parseInt(
     process.env.DARK_MATTER_CHAIN_ID || String(DEFAULT_CHAIN_ID),
     10,
@@ -930,8 +982,22 @@ async function runOrchestrator(args: Map<string, string>): Promise<void> {
     process.env.DARK_MATTER_TRANSCRIPT_SECRET || "dev-dark-matter-secret";
   const networkLabel = process.env.DARK_MATTER_NETWORK || "anvil-local";
 
-  log("orchestrator", `Preflight RPC check: ${rpcUrl} (${networkLabel})`);
-  await ensureRpcReachable(rpcUrl);
+  const isBscTestnet = /bsc|testnet|chapel/i.test(networkLabel);
+  const rpcCandidates = isBscTestnet
+    ? parseRpcCandidates(rpcUrl, ...BSC_TESTNET_FALLBACK_RPCS)
+    : parseRpcCandidates(rpcUrl);
+
+  log(
+    "orchestrator",
+    `Preflight RPC check (${networkLabel}): ${rpcCandidates.join(" | ")}`,
+  );
+
+  if (isBscTestnet) {
+    rpcUrl = await ensureRpcReachable(rpcCandidates);
+    log("orchestrator", `Using reachable RPC: ${rpcUrl}`);
+  } else {
+    await ensureSingleRpcReachable(rpcUrl);
+  }
 
   const interactive =
     args.get("interactive") === "true" ||

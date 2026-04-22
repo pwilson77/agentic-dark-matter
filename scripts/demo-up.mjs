@@ -121,10 +121,17 @@ for (const f of [stateFile, logFile, sessionFile]) {
 
 // Determine network config
 const NETWORK_MODE = USE_TESTNET ? "testnet" : "anvil-local";
-const RPC_URL = USE_TESTNET
+const BASE_RPC_URL = USE_TESTNET
   ? fullEnv.DARK_MATTER_RPC_URL
   : "http://127.0.0.1:8545";
+let RPC_URL = BASE_RPC_URL;
 const CHAIN_ID = USE_TESTNET ? fullEnv.DARK_MATTER_CHAIN_ID : "31337";
+
+const BSC_TESTNET_FALLBACK_RPCS = [
+  "https://bsc-testnet-dataseed.bnbchain.org",
+  "https://bsc-testnet.bnbchain.org",
+  "https://bsc-prebsc-dataseed.bnbchain.org",
+];
 
 // ---- colors ----
 const COLORS = {
@@ -201,6 +208,29 @@ async function waitForRpc(rpcUrl, timeoutMs = 15000) {
   return false;
 }
 
+function uniqueRpcList(values) {
+  const out = [];
+  const seen = new Set();
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    for (const part of value.split(",")) {
+      const url = part.trim();
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      out.push(url);
+    }
+  }
+  return out;
+}
+
+async function pickReachableRpc(candidates, timeoutMs = 5000) {
+  for (const candidate of candidates) {
+    const ok = await waitForRpc(candidate, timeoutMs);
+    if (ok) return candidate;
+  }
+  return null;
+}
+
 // ---- orchestrate startup ----
 async function main() {
   const modeLabel = USE_TESTNET
@@ -221,6 +251,25 @@ async function main() {
     console.log(
       `${prefix("demo")} waiting for anvil on http://127.0.0.1:8545 ...${RESET}`,
     );
+  }
+
+  if (USE_TESTNET) {
+    const candidates = uniqueRpcList([
+      BASE_RPC_URL,
+      process.env.DARK_MATTER_RPC_URL || "",
+      ...BSC_TESTNET_FALLBACK_RPCS,
+    ]);
+    const selected = await pickReachableRpc(candidates, 4500);
+    if (!selected) {
+      console.error(
+        `${prefix("demo")} no reachable testnet RPC from: ${candidates.join(", ")}${RESET}`,
+      );
+      shutdown(1);
+      return;
+    }
+    RPC_URL = selected;
+    fullEnv.DARK_MATTER_RPC_URL = selected;
+    console.log(`${prefix("demo")} selected testnet RPC: ${RPC_URL}${RESET}`);
   }
 
   const ok = await waitForRpc(RPC_URL, USE_TESTNET ? 5000 : 15000);
