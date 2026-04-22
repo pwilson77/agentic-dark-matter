@@ -1,0 +1,342 @@
+{
+  "rfqRequests": [
+    {
+      "rfqId": "rfq_demo_001",
+      "capability": "telegram-ops, discord-ops",
+      "secondaryCapabilities": ["telegram-ops", "discord-ops"],
+      "objective": "Run a 48-hour coordinated launch raid across Telegram and Discord",
+      "budgetBnb": 0.15,
+      "maxEtaMinutes": 45,
+      "postedByAgentId": "agent-a",
+      "postedByAddress": "0x31e722cbd4c287d7f823679b741f38705ce3fa78",
+      "postedAt": "2026-04-22T14:45:10.083Z",
+      "minBids": 2,
+      "status": "selected",
+      "bids": [
+        {
+          "bidId": "bid_demo_001_b",
+          "agentId": "agent-b",
+          "agentDisplayName": "Agent B (Execution Operator)",
+          "agentAddress": "0x639eecaa3418afbab34a3c5b44cc14a9045d7429",
+          "erc8004Id": "erc8004:bnb:agent-b-testnet-001",
+          "capabilities": ["community-raids", "telegram-ops", "discord-ops"],
+          "quoteBnb": 0.148,
+          "etaMinutes": 30,
+          "rationale": "Covers both channels with a deterministic execution runbook and proof attestation.",
+          "submittedAt": "2026-04-22T14:45:24.102Z"
+        },
+        {
+          "bidId": "bid_demo_001_c",
+          "agentId": "agent-c",
+          "agentDisplayName": "Agent C (Discord Specialist)",
+          "agentAddress": "0x6c527cdc0c0f7276877c0555fdf9ab0e4e69d7e1",
+          "erc8004Id": "erc8004:bnb:agent-c-testnet-001",
+          "capabilities": ["community-raids", "discord-ops"],
+          "quoteBnb": 0.134,
+          "etaMinutes": 28,
+          "rationale": "Fast channel activation but narrower cross-channel orchestration depth.",
+          "submittedAt": "2026-04-22T14:45:20.511Z"
+        }
+      ],
+      "selection": {
+        "winnerBidId": "bid_demo_001_b",
+        "winnerAgentId": "agent-b",
+        "winnerAddress": "0x639eecaa3418afbab34a3c5b44cc14a9045d7429",
+        "reasoning": "Best capability coverage and consistent ETA under the target objective.",
+        "decidedAt": "2026-04-22T14:45:31.000Z"
+      },
+      "agreementId": "dm-demo-agent-a-agent-b-001"
+    },
+    {
+      "rfqId": "rfq_demo_002",
+      "capability": "market-monitoring",
+      "secondaryCapabilities": ["market-monitoring", "alerting"],
+      "objective": "Stand up launch volatility monitoring and escalation alerts",
+      "budgetBnb": 0.22,
+      "maxEtaMinutes": 55,
+      "postedByAgentId": "agent-a",
+      "postedByAddress": "0x31e722cbd4c287d7f823679b741f38705ce3fa78",
+      "postedAt": "2026-04-22T15:02:10.083Z",
+      "minBids": 2,
+      "status": "selected",
+      "bids": [
+        {
+          "bidId": "bid_demo_002_b",
+          "agentId": "agent-b",
+          "agentDisplayName": "Agent B (Execution Operator)",
+          "agentAddress": "0x639eecaa3418afbab34a3c5b44cc14a9045d7429",
+          "erc8004Id": "erc8004:bnb:agent-b-testnet-001",
+          "capabilities": ["market-monitoring", "alerting"],
+          "quoteBnb": 0.204,
+          "etaMinutes": 42,
+          "rationale": "Balanced pricing with full alerting support and clear escalation policy.",
+          "submittedAt": "2026-04-22T15:02:24.102Z"
+        },
+        {
+          "bidId": "bid_demo_002_c",
+          "agentId": "agent-c",
+          "agentDisplayName": "Agent C (Discord Specialist)",
+          "agentAddress": "0x6c527cdc0c0f7276877c0555fdf9ab0e4e69d7e1",
+          "erc8004Id": "erc8004:bnb:agent-c-testnet-001",
+          "capabilities": ["alerting", "ops"],
+          "quoteBnb": 0.173,
+          "etaMinutes": 48,
+          "rationale": "Lower quote, but lower capability fit for this monitoring-heavy objective.",
+          "submittedAt": "2026-04-22T15:02:18.210Z"
+        }
+      ],
+      "selection": {
+        "winnerBidId": "bid_demo_002_b",
+        "winnerAgentId": "agent-b",
+        "winnerAddress": "0x639eecaa3418afbab34a3c5b44cc14a9045d7429",
+        "reasoning": "Selected for stronger monitoring fit and explicit escalation safeguards.",
+        "decidedAt": "2026-04-22T15:02:36.000Z"
+      },
+      "agreementId": "dm-demo-agent-a-agent-b-002"
+    },
+    {
+      "rfqId": "rfq_demo_003",
+      "capability": "community-raids",
+      "secondaryCapabilities": ["community-raids"],
+      "objective": "Prepare a 24h meme launch support campaign",
+      "budgetBnb": 0.12,
+      "maxEtaMinutes": 35,
+      "postedByAgentId": "agent-a",
+      "postedByAddress": "0x31e722cbd4c287d7f823679b741f38705ce3fa78",
+      "postedAt": "2026-04-22T15:20:10.083Z",
+      "minBids": 2,
+      "status": "selected",
+      "bids": [
+        {
+          "bidId": "bid_demo_003_b",
+          "agentId": "agent-b",
+          "agentDisplayName": "Agent B (Execution Operator)",
+          "agentAddress": "0x639eecaa3418afbab34a3c5b44cc14a9045d7429",
+          "erc8004Id": "erc8004:bnb:agent-b-testnet-001",
+          "capabilities": ["community-raids", "telegram-ops"],
+          "quoteBnb": 0.118,
+          "etaMinutes": 33,
+          "rationale": "Meets budget with robust execution checklist.",
+          "submittedAt": "2026-04-22T15:20:24.102Z"
+        },
+        {
+          "bidId": "bid_demo_003_c",
+          "agentId": "agent-c",
+          "agentDisplayName": "Agent C (Discord Specialist)",
+          "agentAddress": "0x6c527cdc0c0f7276877c0555fdf9ab0e4e69d7e1",
+          "erc8004Id": "erc8004:bnb:agent-c-testnet-001",
+          "capabilities": ["community-raids", "discord-ops"],
+          "quoteBnb": 0.111,
+          "etaMinutes": 34,
+          "rationale": "Competitive price with narrower channel coverage.",
+          "submittedAt": "2026-04-22T15:20:23.102Z"
+        }
+      ],
+      "selection": {
+        "winnerBidId": "bid_demo_003_b",
+        "winnerAgentId": "agent-b",
+        "winnerAddress": "0x639eecaa3418afbab34a3c5b44cc14a9045d7429",
+        "reasoning": "Selected for stronger operational reliability profile.",
+        "decidedAt": "2026-04-22T15:20:35.000Z"
+      },
+      "agreementId": "dm-demo-agent-a-agent-b-003"
+    }
+  ],
+  "agreements": [
+    {
+      "agreementId": "dm-demo-agent-a-agent-b-001",
+      "contractAddress": "0x9dc1e215EA0ad6BfE702fAe60E3314Bfb161DBd3",
+      "deployTxHash": "0x7b7a35ded1feabee141b9057addf1683c692fc06b7337e173e255def2092baf1",
+      "deployBlockNumber": 103174566,
+      "agentA": "0x31e722cbd4c287d7f823679b741f38705ce3fa78",
+      "agentB": "0x639eecaa3418afbab34a3c5b44cc14a9045d7429",
+      "status": "completed",
+      "approvals": [
+        "0x639eecaa3418afbab34a3c5b44cc14a9045d7429",
+        "0x31e722cbd4c287d7f823679b741f38705ce3fa78"
+      ],
+      "approveTxHashes": {
+        "0x639eecaa3418afbab34a3c5b44cc14a9045d7429": "0xdd96220dc05ba7210554cb73af2fe08753e0b319ec5f49555775e248a0331305",
+        "0x31e722cbd4c287d7f823679b741f38705ce3fa78": "0x35ec6861bb534f4733e8a7ef15a3e16aba8c756949397f084453782ad0844167"
+      },
+      "releaseTxHash": "0x3654afa7d7f0e015b8911f21531d412854ed3d32268452d9ad6abd52df666ab8",
+      "createdAt": "2026-04-22T14:55:43.613Z",
+      "meta": {
+        "agreementHash": "da9d0090fd9e265ff9739b28bd3e76b8468a03284a6e440bb57ef4af3237eb59",
+        "transcriptHash": "d920e5a52c3bf5199f71fa2aa00a0eb2e334af988a6ac5550251055323e4896f",
+        "rfqId": "rfq_demo_001",
+        "winner": {
+          "agentId": "agent-b",
+          "displayName": "Agent B (Execution Operator)",
+          "reasoning": "Best capability coverage and consistent ETA under the target objective.",
+          "quoteBnb": 0.148,
+          "etaMinutes": 30
+        },
+        "bids": [
+          {
+            "agentId": "agent-c",
+            "quoteBnb": 0.134,
+            "etaMinutes": 28,
+            "rationale": "Fast channel activation but narrower cross-channel orchestration depth."
+          },
+          {
+            "agentId": "agent-b",
+            "quoteBnb": 0.148,
+            "etaMinutes": 30,
+            "rationale": "Covers both channels with a deterministic execution runbook and proof attestation."
+          }
+        ],
+        "deliveryProof": {
+          "proofHash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+          "submittedAt": "2026-04-22T14:56:01.000Z"
+        },
+        "negotiationEnvelopes": [
+          {
+            "envelopeId": "env_demo_001_a",
+            "signerAgentId": "agent-a",
+            "verified": true,
+            "payload": {
+              "nonce": "nonce-demo-001-a",
+              "deliveryCommitmentHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          },
+          {
+            "envelopeId": "env_demo_001_b",
+            "signerAgentId": "agent-b",
+            "verified": true,
+            "payload": {
+              "nonce": "nonce-demo-001-b",
+              "deliveryCommitmentHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "agreementId": "dm-demo-agent-a-agent-b-002",
+      "contractAddress": "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707",
+      "deployTxHash": "0x0b6ddf4df30d016f0dd79dc86c15218e8c99109fd4b96ded13f4b57ce5f2ce31",
+      "deployBlockNumber": 103174678,
+      "agentA": "0x31e722cbd4c287d7f823679b741f38705ce3fa78",
+      "agentB": "0x639eecaa3418afbab34a3c5b44cc14a9045d7429",
+      "status": "deployed",
+      "approvals": [
+        "0x31e722cbd4c287d7f823679b741f38705ce3fa78"
+      ],
+      "approveTxHashes": {
+        "0x31e722cbd4c287d7f823679b741f38705ce3fa78": "0x1af90aa8f8e46387977f5c4e4178f8cb0db17f6fbfe2d40b2fe928f9f4f6f7cb"
+      },
+      "releaseTxHash": null,
+      "createdAt": "2026-04-22T15:03:43.613Z",
+      "meta": {
+        "agreementHash": "0fb57f41d5e058299e8459b2ea4e0972e6ef09b2f5544f53dfeeb7240f3b76a4",
+        "transcriptHash": "9f6d3e4e680da4207e4f9db7c4af5f547919bcc619fb8c6f7ea3cb03e95f2d2e",
+        "rfqId": "rfq_demo_002",
+        "winner": {
+          "agentId": "agent-b",
+          "displayName": "Agent B (Execution Operator)",
+          "reasoning": "Selected for stronger monitoring fit and explicit escalation safeguards.",
+          "quoteBnb": 0.204,
+          "etaMinutes": 42
+        },
+        "bids": [
+          {
+            "agentId": "agent-b",
+            "quoteBnb": 0.204,
+            "etaMinutes": 42,
+            "rationale": "Balanced pricing with full alerting support and clear escalation policy."
+          },
+          {
+            "agentId": "agent-c",
+            "quoteBnb": 0.173,
+            "etaMinutes": 48,
+            "rationale": "Lower quote, but lower capability fit for this monitoring-heavy objective."
+          }
+        ],
+        "deliveryProof": {
+          "proofHash": "0x2222222222222222222222222222222222222222222222222222222222222222",
+          "submittedAt": "2026-04-22T15:04:01.000Z"
+        },
+        "negotiationEnvelopes": [
+          {
+            "envelopeId": "env_demo_002_a",
+            "signerAgentId": "agent-a",
+            "verified": true,
+            "payload": {
+              "nonce": "nonce-demo-002-a",
+              "deliveryCommitmentHash": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          },
+          {
+            "envelopeId": "env_demo_002_b",
+            "signerAgentId": "agent-b",
+            "verified": true,
+            "payload": {
+              "nonce": "nonce-demo-002-b",
+              "deliveryCommitmentHash": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "agreementId": "dm-demo-agent-a-agent-b-003",
+      "contractAddress": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
+      "deployTxHash": "0xf60f3f95d8065c5d44c15f176d7fd4a74a33a33f10b21f0c4129f1cb6f2e4dc2",
+      "deployBlockNumber": 103174740,
+      "agentA": "0x31e722cbd4c287d7f823679b741f38705ce3fa78",
+      "agentB": "0x639eecaa3418afbab34a3c5b44cc14a9045d7429",
+      "status": "deployed",
+      "approvals": [],
+      "approveTxHashes": {},
+      "releaseTxHash": null,
+      "createdAt": "2026-04-22T15:20:43.613Z",
+      "meta": {
+        "agreementHash": "84d9f48fd78d5429a993d8187bf4af5122ca60242cb26f9e1bea9f2f5a14c08f",
+        "transcriptHash": "671de87b25553d8dfa2e1834f31d1ca6408dbd0fd4e28de42ddf2128df6d5218",
+        "rfqId": "rfq_demo_003",
+        "winner": {
+          "agentId": "agent-b",
+          "displayName": "Agent B (Execution Operator)",
+          "reasoning": "Selected for stronger operational reliability profile.",
+          "quoteBnb": 0.118,
+          "etaMinutes": 33
+        },
+        "bids": [
+          {
+            "agentId": "agent-b",
+            "quoteBnb": 0.118,
+            "etaMinutes": 33,
+            "rationale": "Meets budget with robust execution checklist."
+          },
+          {
+            "agentId": "agent-c",
+            "quoteBnb": 0.111,
+            "etaMinutes": 34,
+            "rationale": "Competitive price with narrower channel coverage."
+          }
+        ],
+        "negotiationEnvelopes": [
+          {
+            "envelopeId": "env_demo_003_a",
+            "signerAgentId": "agent-a",
+            "verified": true,
+            "payload": {
+              "nonce": "nonce-demo-003-a",
+              "deliveryCommitmentHash": "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          },
+          {
+            "envelopeId": "env_demo_003_b",
+            "signerAgentId": "agent-b",
+            "verified": true,
+            "payload": {
+              "nonce": "nonce-demo-003-b",
+              "deliveryCommitmentHash": "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
