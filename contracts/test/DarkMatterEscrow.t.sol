@@ -49,22 +49,51 @@ contract DarkMatterEscrowTest is Test {
     function test_release_transfersFundsAfterBothApprovals() public {
         DarkMatterEscrow escrow = new DarkMatterEscrow{value: 1 ether}(agentA, agentB, treasury, 6000, 4000);
 
+        vm.prank(agentB);
+        escrow.submitDeliveryProof(keccak256("proof"));
+
         vm.prank(agentA);
         escrow.approveSettlement();
 
         vm.prank(agentB);
         escrow.approveSettlement();
 
-        uint256 treasuryBalanceBefore = treasury.balance;
+        uint256 agentABalanceBefore = agentA.balance;
+        uint256 agentBBalanceBefore = agentB.balance;
         escrow.release();
 
         assertEq(address(escrow).balance, 0);
-        assertEq(treasury.balance, treasuryBalanceBefore + 1 ether);
+        assertEq(agentA.balance, agentABalanceBefore + 0.6 ether);
+        assertEq(agentB.balance, agentBBalanceBefore + 0.4 ether);
         assertTrue(escrow.released());
+    }
+
+    function test_release_revertsWithoutDeliveryProof() public {
+        DarkMatterEscrow escrow = new DarkMatterEscrow{value: 1 ether}(agentA, agentB, treasury, 6000, 4000);
+
+        vm.prank(agentA);
+        escrow.approveSettlement();
+
+        vm.prank(agentB);
+        escrow.approveSettlement();
+
+        vm.expectRevert(DarkMatterEscrow.MissingDeliveryProof.selector);
+        escrow.release();
+    }
+
+    function test_submitDeliveryProof_revertsForUnauthorizedActor() public {
+        DarkMatterEscrow escrow = new DarkMatterEscrow{value: 1 ether}(agentA, agentB, treasury, 6000, 4000);
+
+        vm.prank(agentA);
+        vm.expectRevert(DarkMatterEscrow.Unauthorized.selector);
+        escrow.submitDeliveryProof(keccak256("proof"));
     }
 
     function test_release_revertsWhenCalledTwice() public {
         DarkMatterEscrow escrow = new DarkMatterEscrow{value: 1 ether}(agentA, agentB, treasury, 6000, 4000);
+
+        vm.prank(agentB);
+        escrow.submitDeliveryProof(keccak256("proof"));
 
         vm.prank(agentA);
         escrow.approveSettlement();
@@ -115,18 +144,23 @@ contract DarkMatterEscrowTest is Test {
 
         vm.warp(block.timestamp + escrow.AUTO_CLAIM_TIMEOUT() + 1);
 
-        uint256 treasuryBalanceBefore = treasury.balance;
+        uint256 agentABalanceBefore = agentA.balance;
+        uint256 agentBBalanceBefore = agentB.balance;
 
         vm.prank(agentA);
         escrow.claimAfterTimeout();
 
         assertEq(address(escrow).balance, 0);
-        assertEq(treasury.balance, treasuryBalanceBefore + 1 ether);
+        assertEq(agentA.balance, agentABalanceBefore + 0.6 ether);
+        assertEq(agentB.balance, agentBBalanceBefore + 0.4 ether);
         assertTrue(escrow.released());
     }
 
     function test_claimAfterTimeout_revertsAfterNormalRelease() public {
         DarkMatterEscrow escrow = new DarkMatterEscrow{value: 1 ether}(agentA, agentB, treasury, 6000, 4000);
+
+        vm.prank(agentB);
+        escrow.submitDeliveryProof(keccak256("proof"));
 
         vm.prank(agentA);
         escrow.approveSettlement();

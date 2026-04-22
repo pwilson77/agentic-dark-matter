@@ -7,6 +7,7 @@ const ESCROW_ABI = [
   "function released() view returns (bool)",
   "function AUTO_CLAIM_TIMEOUT() view returns (uint64)",
   "function approveSettlement()",
+  "function submitDeliveryProof(bytes32 proofHash)",
   "function release()",
   "function claimAfterTimeout()",
 ] as const;
@@ -108,6 +109,10 @@ export async function executeSettlement(
   let settlementTxHash = "";
 
   if (mode === "standard") {
+    const proofHash = `0x${"11".repeat(32)}`;
+    const proofTx = await contractAsB.submitDeliveryProof(proofHash);
+    await proofTx.wait();
+
     const approveTxB = await contractAsB.approveSettlement();
     await approveTxB.wait();
     approveTxBHash = approveTxB.hash;

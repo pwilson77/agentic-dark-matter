@@ -15,6 +15,7 @@ contract DarkMatterEscrow {
     bool public agentAApproved;
     bool public agentBApproved;
     bool public released;
+    bytes32 public deliveryProofHash;
 
     error Unauthorized();
     error ZeroAddress();
@@ -22,6 +23,7 @@ contract DarkMatterEscrow {
     error InvalidRevenueShare();
     error AlreadyReleased();
     error MissingApprovals();
+    error MissingDeliveryProof();
     error AutoClaimNotReady();
     error TransferFailed();
 
@@ -34,6 +36,7 @@ contract DarkMatterEscrow {
         uint256 initialBalance
     );
     event SettlementApproved(address indexed approver, bool agentAApproved, bool agentBApproved);
+    event DeliveryProofSubmitted(address indexed submitter, bytes32 indexed proofHash);
     event SettlementReleased(address indexed treasury, uint256 amount, address indexed triggeredBy);
     event SettlementAutoClaimed(address indexed claimer, address indexed treasury, uint256 amount);
     event PoolCreated(bytes32 indexed poolId, address indexed contractAddress, string status, uint256 balance);
@@ -101,6 +104,33 @@ contract DarkMatterEscrow {
         revert Unauthorized();
     }
 
+    function submitDeliveryProof(bytes32 proofHash) external {
+        if (msg.sender != agentB) {
+            revert Unauthorized();
+        }
+        if (proofHash == bytes32(0)) {
+            revert MissingDeliveryProof();
+        }
+        deliveryProofHash = proofHash;
+        emit DeliveryProofSubmitted(msg.sender, proofHash);
+        emit PoolStatusChanged(poolId, "proof-submitted", msg.sender);
+    }
+
+    function _distribute(uint256 amount) internal {
+        uint256 amountToAgentA = (amount * revenueShareBpsAgentA) / 10_000;
+        uint256 amountToAgentB = amount - amountToAgentA;
+
+        (bool okA, ) = payable(agentA).call{value: amountToAgentA}("");
+        if (!okA) {
+            revert TransferFailed();
+        }
+
+        (bool okB, ) = payable(agentB).call{value: amountToAgentB}("");
+        if (!okB) {
+            revert TransferFailed();
+        }
+    }
+
     function release() external {
         if (released) {
             revert AlreadyReleased();
@@ -108,14 +138,14 @@ contract DarkMatterEscrow {
         if (!(agentAApproved && agentBApproved)) {
             revert MissingApprovals();
         }
+        if (deliveryProofHash == bytes32(0)) {
+            revert MissingDeliveryProof();
+        }
 
         uint256 amount = address(this).balance;
         released = true;
 
-        (bool ok, ) = payable(treasury).call{value: amount}("");
-        if (!ok) {
-            revert TransferFailed();
-        }
+        _distribute(amount);
 
         emit SettlementReleased(treasury, amount, msg.sender);
         emit PoolStatusChanged(poolId, "released", msg.sender);
@@ -138,10 +168,7 @@ contract DarkMatterEscrow {
         uint256 amount = address(this).balance;
         released = true;
 
-        (bool ok, ) = payable(treasury).call{value: amount}("");
-        if (!ok) {
-            revert TransferFailed();
-        }
+        _distribute(amount);
 
         emit SettlementAutoClaimed(msg.sender, treasury, amount);
         emit PoolStatusChanged(poolId, "auto-claimed-timeout", msg.sender);

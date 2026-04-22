@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import { parseEther } from "ethers";
+import { Contract, NonceManager, JsonRpcProvider, Wallet, parseEther } from "ethers";
 import {
   approveSettlementViaMcp,
   createAgreementViaMcp,
@@ -111,6 +111,7 @@ const DEFAULT_STATE_FILE = "/tmp/adm-agent-state.json";
 const DEFAULT_RPC_URL = "http://127.0.0.1:8545";
 const DEFAULT_CHAIN_ID = 31337;
 const DEFAULT_TREASURY = "0x1111222233334444555566667777888899990000";
+const ESCROW_PROOF_ABI = ["function submitDeliveryProof(bytes32 proofHash)"] as const;
 const BSC_TESTNET_FALLBACK_RPCS = [
   "https://bsc-testnet-dataseed.bnbchain.org",
   "https://bsc-testnet.bnbchain.org",
@@ -565,6 +566,33 @@ function buildDeliveryProof(
   };
 }
 
+function toBytes32Hex(hexNoPrefix: string): string {
+  const normalized = hexNoPrefix.trim().toLowerCase().replace(/^0x/, "");
+  if (!/^[a-f0-9]{64}$/.test(normalized)) {
+    throw new Error(`Invalid proof hash for bytes32 conversion: ${hexNoPrefix}`);
+  }
+  return `0x${normalized}`;
+}
+
+async function submitDeliveryProofOnChain(input: {
+  rpcUrl: string;
+  contractAddress: string;
+  signerPrivateKey: string;
+  proofHash: string;
+}): Promise<string> {
+  const provider = new JsonRpcProvider(input.rpcUrl);
+  const signer = new Wallet(input.signerPrivateKey, provider);
+  const managedSigner = new NonceManager(signer);
+  const contract = new Contract(
+    input.contractAddress,
+    ESCROW_PROOF_ABI,
+    managedSigner,
+  );
+  const tx = await contract.submitDeliveryProof(toBytes32Hex(input.proofHash));
+  await tx.wait();
+  return tx.hash as string;
+}
+
 async function shouldApproveWithLlm(
   config: AgentConfig,
   agreement: AgreementStateRecord,
@@ -700,14 +728,21 @@ async function processAgreements(
       !getDeliveryProof(agreement)
     ) {
       const proof = buildDeliveryProof(config, agreement);
+      const proofTxHash = await submitDeliveryProofOnChain({
+        rpcUrl: config.network.rpcUrl,
+        contractAddress: agreement.contractAddress,
+        signerPrivateKey: privateKey,
+        proofHash: proof.proofHash,
+      });
       agreement.meta = {
         ...(agreement.meta || {}),
         deliveryProof: proof,
+        deliveryProofTxHash: proofTxHash,
       };
       changed = true;
       log(
         config.agentId,
-        `Submitted delivery proof hash=${proof.proofHash} for ${agreement.contractAddress}`,
+        `Submitted delivery proof hash=${proof.proofHash} tx=${proofTxHash} for ${agreement.contractAddress}`,
       );
     }
 
@@ -890,7 +925,10 @@ function parseRpcCandidates(...sources: string[]): string[] {
   return out;
 }
 
-async function ensureRpcReachable(candidates: string[], timeoutMs = 10000): Promise<string> {
+async function ensureRpcReachable(
+  candidates: string[],
+  timeoutMs = 10000,
+): Promise<string> {
   if (candidates.length === 0) {
     throw new Error("No RPC candidates configured.");
   }
@@ -923,7 +961,10 @@ async function ensureRpcReachable(candidates: string[], timeoutMs = 10000): Prom
   );
 }
 
-async function ensureSingleRpcReachable(rpcUrl: string, timeoutMs = 10000): Promise<void> {
+async function ensureSingleRpcReachable(
+  rpcUrl: string,
+  timeoutMs = 10000,
+): Promise<void> {
   const started = Date.now();
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -1013,7 +1054,9 @@ async function runOrchestrator(args: Map<string, string>): Promise<void> {
   let maxEtaMinutes = Number.parseInt(args.get("eta") || "45", 10);
   let minBids = Number.parseInt(args.get("min-bids") || "2", 10);
   const rfqTimeoutMs = Number.parseInt(
-    args.get("timeout-ms") || process.env.DARK_MATTER_RFQ_TIMEOUT_MS || "180000",
+    args.get("timeout-ms") ||
+      process.env.DARK_MATTER_RFQ_TIMEOUT_MS ||
+      "180000",
     10,
   );
 
