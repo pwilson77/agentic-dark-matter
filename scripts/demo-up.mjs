@@ -26,7 +26,10 @@ if (!SKIP_LLM && existsSync(envFile)) {
     const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/);
     if (!m) continue;
     const [, k, rawV] = m;
-    if (k.startsWith("DARK_MATTER_LLM_") || k === "DARK_MATTER_TRANSCRIPT_SECRET") {
+    if (
+      k.startsWith("DARK_MATTER_LLM_") ||
+      k === "DARK_MATTER_TRANSCRIPT_SECRET"
+    ) {
       // strip surrounding quotes
       llmEnv[k] = rawV.replace(/^['"]|['"]$/g, "");
     }
@@ -78,7 +81,11 @@ function launch(name, cmd, args, extraEnv = {}) {
     DARK_MATTER_NETWORK: "anvil-local",
     ...extraEnv,
   };
-  const child = spawn(cmd, args, { cwd: ROOT, env, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(cmd, args, {
+    cwd: ROOT,
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
   pipe(name, child.stdout);
   pipe(name, child.stderr);
   child.on("exit", (code, signal) => {
@@ -129,7 +136,9 @@ async function main() {
     console.log(`${prefix("demo")} waiting for anvil on :8545 ...${RESET}`);
     const ok = await waitForAnvil();
     if (!ok) {
-      console.error(`${prefix("demo")} anvil did not start in time; aborting${RESET}`);
+      console.error(
+        `${prefix("demo")} anvil did not start in time; aborting${RESET}`,
+      );
       shutdown(1);
       return;
     }
@@ -153,18 +162,33 @@ async function main() {
     process.exit(1);
   }
 
-  launch("agent-a", node, [cliEntry, "agent", "--config", "./agents/agent-a/config.json"], {
-    AGENT_A_PRIVATE_KEY:
-      "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
-  });
-  launch("agent-b", node, [cliEntry, "agent", "--config", "./agents/agent-b/config.json"], {
-    AGENT_B_PRIVATE_KEY:
-      "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a",
-  });
-  launch("agent-c", node, [cliEntry, "agent", "--config", "./agents/agent-c/config.json"], {
-    AGENT_C_PRIVATE_KEY:
-      "0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6",
-  });
+  launch(
+    "agent-a",
+    node,
+    [cliEntry, "agent", "--config", "./agents/agent-a/config.json"],
+    {
+      AGENT_A_PRIVATE_KEY:
+        "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
+    },
+  );
+  launch(
+    "agent-b",
+    node,
+    [cliEntry, "agent", "--config", "./agents/agent-b/config.json"],
+    {
+      AGENT_B_PRIVATE_KEY:
+        "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a",
+    },
+  );
+  launch(
+    "agent-c",
+    node,
+    [cliEntry, "agent", "--config", "./agents/agent-c/config.json"],
+    {
+      AGENT_C_PRIVATE_KEY:
+        "0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6",
+    },
+  );
 
   console.log(
     `${prefix("demo")} agents up. In another terminal run: ${BOLD}npm run demo:chat${RESET}${COLORS.demo}  (or: node ./scripts/demo-post.mjs)${RESET}`,

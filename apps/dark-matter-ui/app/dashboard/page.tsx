@@ -54,6 +54,8 @@ interface RankedCandidate {
 interface SettlementProof {
   agreementHash: string;
   contractAddress: string;
+  deploymentTxHash?: string;
+  deploymentBlockNumber?: number;
   releaseTxHash: string;
   transcriptHash: string;
   released: boolean;
@@ -939,8 +941,9 @@ function ProofRibbon({ pool }: { pool: PoolItem }) {
   }> = [
     {
       label: "Escrow deployed",
-      hash: pool.settlement.contractAddress,
-      kind: "address",
+      hash:
+        pool.settlement.deploymentTxHash || pool.settlement.contractAddress,
+      kind: pool.settlement.deploymentTxHash ? "tx" : "address",
     },
     {
       label: "Agent A approved",

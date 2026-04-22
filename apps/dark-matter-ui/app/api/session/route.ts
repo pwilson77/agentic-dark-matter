@@ -53,6 +53,8 @@ interface RankedCandidate {
 interface SettlementProof {
   agreementHash: string;
   contractAddress: string;
+  deploymentTxHash?: string;
+  deploymentBlockNumber?: number;
   releaseTxHash: string;
   transcriptHash: string;
   released: boolean;
@@ -793,6 +795,8 @@ interface RuntimeStateRfq {
 interface RuntimeStateAgreement {
   agreementId?: string;
   contractAddress?: string;
+  deployTxHash?: string | null;
+  deployBlockNumber?: number | null;
   agentA?: string;
   agentB?: string;
   status?: string;
@@ -1137,6 +1141,9 @@ async function loadLocalPoolsFromStateFile(): Promise<PoolItem[]> {
     .filter((agreement) => !!agreement.contractAddress)
     .map((agreement, index) => {
       const contractAddress = String(agreement.contractAddress || "");
+      const deployTxHash = agreement.deployTxHash
+        ? String(agreement.deployTxHash)
+        : "";
       const releaseTxHash = String(agreement.releaseTxHash || "");
       const approvals = agreement.approvals || [];
 
@@ -1153,17 +1160,14 @@ async function loadLocalPoolsFromStateFile(): Promise<PoolItem[]> {
       const winner = agreement.meta?.winner;
       const legacySelected = agreement.meta?.rfq?.selected;
       const selectedName =
-        winner?.displayName ||
-        legacySelected?.displayName ||
-        "Counterparty";
+        winner?.displayName || legacySelected?.displayName || "Counterparty";
       const selectedQuoteBnb = Number(
         winner?.quoteBnb ?? legacySelected?.quoteBnb ?? 0,
       );
       const selectedEtaMinutes = Number(
         winner?.etaMinutes ?? legacySelected?.etaMinutes ?? 0,
       );
-      const selectedReasoning =
-        winner?.reasoning || "Selected by RFQ scoring";
+      const selectedReasoning = winner?.reasoning || "Selected by RFQ scoring";
 
       // Look up matching RFQ for richer metadata
       const linkedRfq = rfqRequests.find(
@@ -1214,7 +1218,9 @@ async function loadLocalPoolsFromStateFile(): Promise<PoolItem[]> {
         id: `${shortId}-escrow-deployed`,
         at: agreement.createdAt || "recent",
         title: "Escrow deployed",
-        detail: `Contract ${contractAddress} · ${selectedQuoteBnb} BNB locked`,
+        detail: deployTxHash
+          ? `Contract ${contractAddress} · ${selectedQuoteBnb} BNB locked · tx ${deployTxHash.slice(0, 14)}…`
+          : `Contract ${contractAddress} · ${selectedQuoteBnb} BNB locked`,
         status: "ok",
       });
       for (const [addr, tx] of Object.entries(approveTxHashes)) {
@@ -1282,10 +1288,9 @@ async function loadLocalPoolsFromStateFile(): Promise<PoolItem[]> {
             agentId: index * 2 + 2,
             name: selectedName,
             wallet: agentB || "0x0000000000000000000000000000000000000000",
-            capabilities:
-              (linkedRfq?.bids || []).find(
-                (b) => b.agentAddress?.toLowerCase() === agentBLower,
-              )?.capabilities || ["executor"],
+            capabilities: (linkedRfq?.bids || []).find(
+              (b) => b.agentAddress?.toLowerCase() === agentBLower,
+            )?.capabilities || ["executor"],
             fitScore: 88,
           },
         ],
@@ -1307,6 +1312,11 @@ async function loadLocalPoolsFromStateFile(): Promise<PoolItem[]> {
             agreement.meta?.agreementHash || agreement.agreementId || "",
           ),
           contractAddress,
+          deploymentTxHash: deployTxHash || undefined,
+          deploymentBlockNumber:
+            typeof agreement.deployBlockNumber === "number"
+              ? agreement.deployBlockNumber
+              : undefined,
           releaseTxHash,
           transcriptHash: String(agreement.meta?.transcriptHash || ""),
           released: !!releaseTxHash,

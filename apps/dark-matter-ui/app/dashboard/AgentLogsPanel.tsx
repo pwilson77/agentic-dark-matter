@@ -74,8 +74,7 @@ export default function AgentLogsPanel() {
   useEffect(() => {
     const el = listRef.current;
     if (!el) return;
-    const nearBottom =
-      el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
     if (nearBottom) el.scrollTop = el.scrollHeight;
   }, [lines]);
 

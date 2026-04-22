@@ -90,6 +90,8 @@ interface RfqRequestRecord {
 interface AgreementStateRecord {
   agreementId: string;
   contractAddress: string;
+  deployTxHash: string | null;
+  deployBlockNumber: number | null;
   agentA: string;
   agentB: string;
   status: "deployed" | "completed" | "failed";
@@ -150,8 +152,7 @@ function getStateFile(): string {
 
 async function readState(): Promise<RuntimeState> {
   const stateFile = getStateFile();
-  if (!existsSync(stateFile))
-    return { rfqRequests: [], agreements: [] };
+  if (!existsSync(stateFile)) return { rfqRequests: [], agreements: [] };
   try {
     const parsed = JSON.parse(
       await readFile(stateFile, "utf8"),
@@ -611,7 +612,10 @@ async function shouldApproveWithLlm(
     }
     return false;
   } catch (err) {
-    log(config.agentId, `LLM approval error: ${String(err)}; defaulting to approve.`);
+    log(
+      config.agentId,
+      `LLM approval error: ${String(err)}; defaulting to approve.`,
+    );
     return true;
   }
 }
@@ -699,10 +703,7 @@ async function processAgreements(
         const llmAllowsApproval = await shouldApproveWithLlm(config, agreement);
         if (!llmAllowsApproval) {
           // Coordinator waiting on executor's delivery proof → silent skip.
-          if (
-            config.role === "coordinator" &&
-            !getDeliveryProof(agreement)
-          ) {
+          if (config.role === "coordinator" && !getDeliveryProof(agreement)) {
             continue;
           }
           log(
@@ -898,10 +899,7 @@ async function runOrchestrator(args: Map<string, string>): Promise<void> {
   let budgetBnb = Number.parseFloat(args.get("budget") || "1");
   let maxEtaMinutes = Number.parseInt(args.get("eta") || "45", 10);
   let minBids = Number.parseInt(args.get("min-bids") || "2", 10);
-  const rfqTimeoutMs = Number.parseInt(
-    args.get("timeout-ms") || "60000",
-    10,
-  );
+  const rfqTimeoutMs = Number.parseInt(args.get("timeout-ms") || "60000", 10);
 
   if (interactive) {
     const rl = readline.createInterface({ input, output });
@@ -932,7 +930,10 @@ async function runOrchestrator(args: Map<string, string>): Promise<void> {
       10,
     );
     minBids = Number.parseInt(
-      await ask("Minimum bids required before Agent A selects", String(minBids)),
+      await ask(
+        "Minimum bids required before Agent A selects",
+        String(minBids),
+      ),
       10,
     );
     rl.close();
@@ -946,7 +947,10 @@ async function runOrchestrator(args: Map<string, string>): Promise<void> {
 
   log("orchestrator", `User task intent received:`);
   log("orchestrator", `  capability=${capability}`);
-  log("orchestrator", `  secondary=${secondaryCapabilities.join(", ") || "(none)"}`);
+  log(
+    "orchestrator",
+    `  secondary=${secondaryCapabilities.join(", ") || "(none)"}`,
+  );
   log("orchestrator", `  budget=${budgetBnb} BNB  maxEta=${maxEtaMinutes}m`);
   log("orchestrator", `  objective="${objective}"`);
   log("orchestrator", `Posting RFQ on behalf of Agent A (${agentAAddress})...`);
@@ -1014,7 +1018,10 @@ async function runOrchestrator(args: Map<string, string>): Promise<void> {
   if (!negotiated.accepted || !negotiated.agreementId) {
     throw new Error(negotiated.rejectionReason || "Negotiation rejected");
   }
-  log("orchestrator", `Negotiation accepted: agreementId=${negotiated.agreementId}`);
+  log(
+    "orchestrator",
+    `Negotiation accepted: agreementId=${negotiated.agreementId}`,
+  );
 
   const transcript = await storeEncryptedTranscript({
     agreementId: negotiated.agreementId,
@@ -1045,6 +1052,13 @@ async function runOrchestrator(args: Map<string, string>): Promise<void> {
   state.agreements.push({
     agreementId: negotiated.agreementId,
     contractAddress: String(agreement.contractAddress || ""),
+    deployTxHash: agreement.deploymentTxHash
+      ? String(agreement.deploymentTxHash)
+      : null,
+    deployBlockNumber:
+      typeof agreement.deploymentBlockNumber === "number"
+        ? agreement.deploymentBlockNumber
+        : null,
     agentA: agentAAddress,
     agentB: winnerBid.agentAddress,
     status: "deployed",
@@ -1075,7 +1089,10 @@ async function runOrchestrator(args: Map<string, string>): Promise<void> {
   await markRfqAgreement(rfq.rfqId, negotiated.agreementId);
 
   log("orchestrator", `Escrow deployed at ${agreement.contractAddress}`);
-  log("orchestrator", `Handing off to Agent A and ${winnerBid.agentDisplayName} for approval + release.`);
+  log(
+    "orchestrator",
+    `Handing off to Agent A and ${winnerBid.agentDisplayName} for approval + release.`,
+  );
   log(
     "orchestrator",
     `Monitor state file ${getStateFile()} or watch the agent terminals for DEMO COMPLETE.`,

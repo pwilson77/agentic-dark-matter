@@ -284,6 +284,7 @@ npm run demo:up
 ```
 
 What this does (see [scripts/demo-up.mjs](scripts/demo-up.mjs)):
+
 - starts anvil on `127.0.0.1:8545`,
 - clears stale state / log / session files in `/tmp`,
 - loads `DARK_MATTER_LLM_*` values from `.env.testnet` (if present) so the agents can use LLMs,
@@ -354,6 +355,7 @@ npm run demo:up:testnet
 ```
 
 What this does (see [scripts/demo-up-testnet.mjs](scripts/demo-up-testnet.mjs)):
+
 - loads the full `.env.testnet` (LLM keys, RPC, chainId=97, all three agent keys),
 - validates that Agent A/B/C keys are present,
 - clears stale `/tmp/adm-agent-state.json` / logs / session files,
