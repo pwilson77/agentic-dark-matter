@@ -1,0 +1,34 @@
+
+          VERCEL DEPLOYMENT - QUICK START                         ║
+
+PROJECT: Agentic Dark Matter Oracle
+STATUS: ✅ Ready for Vercel deployment
+
+WHAT'S CONFIGURED:
+  ✓ Vercel CLI installed globally
+  ✓ vercel.json config ready (apps/dark-matter-ui/vercel.json)
+  ✓ Demo snapshot committed (3 RFQs, 3 agreements)
+  ✓ Session API fallback loading (local /tmp → env → bundled snapshot)
+  ✓ All code pushed to main (commit 28d3a1d)
+
+TO DEPLOY:
+  1. cd /workspace/projects/agentic-dark-matter-oracle/apps/dark-matter-ui
+  2. vercel login
+     → Follow device auth at vercel.com/device
+  3. vercel --prod
+     → Deploys to production
+
+DEMO DATA:
+  • Agreement 001: Completed (full release cycle)
+  • Agreement 002: Settling (one approval, proof submitted)
+  • Agreement 003: Live (deployed, awaiting approvals)
+
+API ENDPOINT:
+  GET /api/session → Returns pool state with demo data
+
+FALLBACK LOADING:
+  Tier 1: /tmp/adm-agent-state.json (local dev)
+  Tier 2: $DARK_MATTER_DEMO_STATE_FILE (env override)
+  Tier 3: Bundled demo-state.snapshot.json (Vercel production)
+
+FULL GUIDE: See VERCEL_DEPLOYMENT_GUIDE.md
